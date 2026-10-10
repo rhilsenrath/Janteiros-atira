@@ -11,6 +11,7 @@ dependencies = [
     "jsonschema==4.26.0",
     "pypdf>=5,<7",
     "tzdata>=2026.5",
+    "python-dotenv>=1.2.4",
 ]
 
 [tool.uv]

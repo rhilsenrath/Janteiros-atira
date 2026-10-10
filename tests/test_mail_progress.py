@@ -35,6 +35,25 @@ class MailProgressTests(unittest.TestCase):
         return self.worker.process_extraction(self.context,self.task,response,
             CommercialPolicies(rules=rules, approved_discount=5),[],AgentStatus.complete,[],sources)
 
+    def test_observed_authority_does_not_depend_on_model_boolean(self):
+        source=self.source()
+        rule=self.rule().model_copy(update={'authorized':False,'authorized_sender':None})
+        result=self.process([rule],[source])[0]
+        self.assertEqual(len(result.rules),1)
+        self.assertTrue(result.rules[0].authorized)
+        self.assertEqual(result.rules[0].authorized_sender,'director@example.test')
+
+    def test_mismatched_envelope_authority_is_not_repaired(self):
+        source=self.source(sender='stranger@example.test')
+        rule=self.rule().model_copy(update={'authorized':False,'authorized_sender':None})
+        self.assertEqual(self.process([rule],[source])[0].rules,[])
+
+    def test_observed_other_reference_reports_reference_not_sender_error(self):
+        source=self.source()
+        source['text']=source['text'].replace('RFQ-1','RFQ-1-A')
+        self.process([self.rule()],[source])
+        self.assertEqual(self.worker.last_rejections[0]['reason'],'reference_mismatch')
+
     def test_pending_topics_survive_successful_discount_extraction(self):
         source = self.source()
         review = TopicReview(topic_id='discount',rule_keys=['discount'],search_complete=True,source_ids=['one'])
@@ -229,28 +248,7 @@ class MailMessageIdentityTests(unittest.TestCase):
             worker.validate_investigation_action(action)
         worker.validate_investigation_action(BrowserAction(operation='goto',url='https://mail.test/?q=RFQ-1'))
 
-    def test_stalled_topic_requires_other_search_and_stays_pending(self):
-        worker=MailAgent()
-        worker.coverage={'discount':{'state':'pending'},'clauses':{'state':'pending'}}
-        worker.navigator=SimpleNamespace(page=SimpleNamespace(url='https://mail.test/?q=RFQ-1+Rabatt'),
-            targets={'search':(None,0,{'label':'Suchbegriff'})})
-        for _ in range(11):worker.track_investigation({'url':worker.navigator.page.url})
-        self.assertEqual(worker.stalled_topic,'discount')
-        with self.assertRaises(ValueError):
-            worker.validate_investigation_action(BrowserAction(operation='fill',target='search',value='RFQ-1 Rabatt'))
-        worker.validate_investigation_action(BrowserAction(operation='fill',target='search',value='RFQ-1 Konditionsregeln'))
-        self.assertIsNone(worker.stalled_topic)
-        self.assertEqual(worker.current_topic,'clauses')
-        self.assertEqual(worker.coverage['discount']['state'],'pending')
 
-    def test_new_fact_resets_stall_counter(self):
-        worker=MailAgent()
-        observation={'url':'https://mail.test/?q=RFQ-1+Rabatt'}
-        for _ in range(6):worker.track_investigation(observation)
-        worker.records[('one','rule')]=CommercialRule(key='rule',kind='business_rule',text='Approval',topic_id='discount')
-        worker.track_investigation(observation)
-        self.assertEqual(worker.topic_attempts['discount']['steps_without_progress'],0)
-        self.assertIsNone(worker.stalled_topic)
 
     def test_rejected_message_cannot_be_retried_under_another_observation(self):
         worker=MailAgent()

@@ -45,8 +45,12 @@ class MailLLMClient(LLMClient):
         self.schema_supported = True
         self.fallback_client = fallback_client
         self.owns_fallback = fallback_client is None
+        self.openai_calls_remaining=0
+        self.openai_hold_calls=int(os.environ.get("MAIL_OPENAI_HOLD_CALLS","5"))
+        if not 0<=self.openai_hold_calls<=100:
+            raise ValueError("MAIL_OPENAI_HOLD_CALLS must be between 0 and 100")
         self.fallback_model = os.environ.get('MAIL_OPENAI_MODEL','gpt-4.1-mini')
-        self.qwen_timeout = float(qwen_timeout if qwen_timeout is not None else os.environ.get('MAIL_QWEN_TIMEOUT','30'))
+        self.qwen_timeout = float(qwen_timeout if qwen_timeout is not None else os.environ.get('MAIL_QWEN_TIMEOUT','10'))
         if not math.isfinite(self.qwen_timeout) or self.qwen_timeout<=0:
             raise ValueError('MAIL_QWEN_TIMEOUT must be a positive finite number')
 
@@ -90,7 +94,13 @@ class MailLLMClient(LLMClient):
         messages = [{'role':'system','content':system + ('\nReturn exactly JSON matching this schema:\n'+json.dumps(schema) if schema else '')},
                     {'role':'user','content':user}]
         corrections = 0
+        transient_retries = 0
         provider='qwen'
+        if self.openai_calls_remaining and self.fallback_available():
+            provider='openai'
+            self.openai_calls_remaining-=1
+            self.logger.emit('model_provider_cooldown',provider=provider,model=self.fallback_model,
+                             count=self.openai_calls_remaining,**metadata)
         for attempt in range(3):
             options = {'model':self.model,'messages':messages,'max_tokens':settings.get('max_tokens',4096),
                        'timeout':settings.get('timeout',90),
@@ -117,6 +127,7 @@ class MailLLMClient(LLMClient):
                     if provider!='qwen' or not self.fallback_available():raise
                     self.logger.emit('model_provider_fallback',error_type='TimeoutError',**call_metadata)
                     provider='openai'
+                    self.openai_calls_remaining=self.openai_hold_calls
                     options.pop('extra_body',None)
                     options['model']=self.fallback_model
                     options['timeout']=settings.get('timeout',90)
@@ -126,6 +137,13 @@ class MailLLMClient(LLMClient):
                     self.logger.emit('model_call_started',attempt=attempt+1,**call_metadata)
                     reply=await self.completion(self.openai_client(),options,options['timeout'],call_metadata)
             except APIStatusError as error:
+                if error.status_code>=500 and transient_retries<1:
+                    transient_retries+=1
+                    self.logger.emit('model_retry',error_type=type(error).__name__,**metadata)
+                    if provider=='qwen' and self.fallback_available():
+                        provider='openai'
+                        self.openai_calls_remaining=self.openai_hold_calls
+                    continue
                 if provider=='qwen' and schema and self.schema_supported and error.status_code in (400,422):
                     self.schema_supported=False
                     self.logger.emit('model_schema_fallback',**metadata)

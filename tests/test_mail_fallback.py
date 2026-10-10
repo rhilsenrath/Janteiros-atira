@@ -16,6 +16,18 @@ def client(fn):
 
 
 class MailFallbackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_server_error_retries_on_backup(self):
+        import httpx
+        from openai import InternalServerError
+        error=InternalServerError('temporary',response=httpx.Response(500,request=httpx.Request('POST','https://test.invalid')),body=None)
+        primary=AsyncMock(side_effect=error)
+        backup=AsyncMock(return_value=reply())
+        worker=MailLLMClient(logger=MailLogger(sink=lambda _:None),client=client(primary),fallback_client=client(backup))
+        result=await worker.ask('Navigate','{}',output_type=BrowserAction)
+        self.assertEqual(result.structured.operation,'inspect')
+        self.assertEqual(primary.await_count,1)
+        self.assertEqual(backup.await_count,1)
+
     async def test_slow_qwen_cancelled_and_same_request_uses_openai(self):
         cancelled=[]
         async def slow(**kwargs):
@@ -69,3 +81,18 @@ class MailFallbackTests(unittest.IsolatedAsyncioTestCase):
             worker=MailLLMClient(logger=MailLogger(sink=lambda _:None),client=client(timedout))
             with self.assertRaises(TimeoutError):await worker.ask('Navigate','{}',output_type=BrowserAction)
             sdk.assert_not_called()
+
+    async def test_next_five_calls_use_backup_then_probe_qwen(self):
+        async def slow(**kwargs):await asyncio.Event().wait()
+        primary=AsyncMock(side_effect=[TimeoutError(),reply()])
+        backup=AsyncMock(return_value=reply())
+        worker=MailLLMClient(logger=MailLogger(sink=lambda _:None),client=client(primary),
+                             fallback_client=client(backup),qwen_timeout=1)
+        worker.openai_hold_calls=5
+        await worker.ask('Navigate','{}',output_type=BrowserAction)
+        for _ in range(5):await worker.ask('Navigate','{}',output_type=BrowserAction)
+        self.assertEqual(primary.await_count,1)
+        self.assertEqual(backup.await_count,6)
+        await worker.ask('Navigate','{}',output_type=BrowserAction)
+        self.assertEqual(primary.await_count,2)
+        self.assertEqual(backup.await_count,6)

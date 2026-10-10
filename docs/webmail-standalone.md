@@ -124,11 +124,11 @@ repositório ou em arquivos de tarefa. Em PowerShell 7:
 
 ```powershell
 $env:OPENAI_API_KEY = Read-Host "Chave OpenAI" -MaskInput
-$env:MAIL_QWEN_TIMEOUT = "30"
+$env:MAIL_QWEN_TIMEOUT = "10"
 $env:MAIL_OPENAI_MODEL = "gpt-4.1-mini"
 ```
 
-Com a chave presente, se o Qwen não responder em 30 segundos, cancela a chamada e
+Com a chave presente, se o Qwen não responder em 10 segundos, cancela a chamada e
 envia as mesmas instruções e dados para a OpenAI. O fallback usa JSON mode com a
 mesma validação Pydantic e uma tentativa de corrigir a resposta. Correções permanecem
 na OpenAI para essa solicitação; a próxima solicitação começa pelo Qwen novamente.
@@ -140,3 +140,51 @@ Os eventos `model_provider_fallback` e `model_call` identificam provedor/modelo.
 Cancelamento manual/global não dispara fallback. Falhas da OpenAI não geram outro
 fallback. Os testes usam clientes simulados; nenhuma chamada paga foi realizada na
 verificação. O fluxo de reinício entre assuntos pode ser usado junto com o fallback.
+
+### Configuração local em `.env`
+
+O executor carrega `.env` na raiz do repositório antes de criar o cliente de modelos.
+Preencha `OPENAI_API_KEY=` com sua chave. O arquivo é ignorado pelo Git. Variáveis já
+configuradas no terminal têm prioridade; o `.env` não substitui o runtime do scout.
+`MAIL_QWEN_TIMEOUT=10` e `MAIL_OPENAI_MODEL=gpt-4.1-mini` podem ser configurados ali.
+Não use credenciais Qwen antigas do scout neste arquivo; o scout fornece o acesso atual.
+
+Após um timeout do Qwen, as próximas cinco solicitações usam diretamente a OpenAI;
+depois volta a testar o Qwen. `MAIL_OPENAI_HOLD_CALLS` ajusta esse número (0 desativa).
+O evento `model_provider_cooldown` registra esse uso. Extrações de listas sem corpo
+original são bloqueadas antes de chamar o modelo, orientando abrir o original.
+Buscas explicitamente vazias ainda permitem revisão de ausência de registros.
+
+As decisões de navegação agora usam MailDecision: topic_id e stage obrigatórios, além
+da ação. O controlador não deduz o assunto pelas palavras da busca. O prompt de modo
+informa se mudanças de assunto reiniciam a aba ou usam a URL de retorno. O remetente
+pode ser recuperado de um cabeçalho Von/From observado quando corresponde à autoridade
+do brief; um remetente diferente nunca é substituído. Rejeições registram os remetentes
+observados e os campos de autoridade devolvidos pelo modelo para diagnóstico.
+
+## Fluxo atual simplificado
+
+O executor agora sempre tenta cada tema do plano uma vez, em ordem: abre/autentica,
+pesquisa e abre mensagens escolhidas pelo modelo, salva regras aceitas e fecha a aba.
+Na primeira extração útil passa ao próximo tema. Falhas/limites também fecham a aba e
+seguem, sem revisitar o tema nesta run. O orçamento de passos e tempo é dividido entre
+os temas. `mail-topic-runs.json` registra salvo, incompleto, limite ou falha por tema.
+O flag `--restart-between-topics` é mantido por compatibilidade; o reinício por tema
+agora é sempre usado. Não há contador de adiamento nem troca livre de tema pelo modelo.
+Regras e evidências continuam validadas. Coleta parcial não garante cobertura completa.
+
+### Sequência controlada pelo código
+
+O modelo devolve termos (MailSearch). O código acrescenta a referência, preenche o
+campo observado e submete com Enter, confirmando q na URL de resultados. Depois o
+modelo escolhe somente entre controles permitidos (MailChoice): candidatos, arquivo,
+paginação e abertura de original/cabeçalhos. Mensagens de assinatura são excluídas.
+Quando o corpo original está disponível, o código chama a extração automaticamente.
+Observações sem mudança são limitadas; sem avanço o tema termina incompleto.
+MailDecision não é mais usado no loop atual. O fluxo continua um tema por aba.
+
+A busca agora exige selecionar um assunto exato sustentado pelo brief ou pela página
+observada (por exemplo Rabattfreigabe, Technikfreigabe, Devisenfixing). O modelo não
+pode acrescentar descrições ou traduzir o assunto. Referências repetidas são removidas;
+o controlador acrescenta uma vez a referência. Há uma correção curta se a escolha for
+inválida. Sem assunto sustentado, o tema registra falha, sem inventar termos.

@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 from playwright.async_api import async_playwright
+from dotenv import load_dotenv
 
 import browsers
 import run as contract
@@ -42,7 +43,7 @@ def parser():
     cli.add_argument('--site-id', help='Explicit mailbox siteId from runtime access; otherwise roles are resolved')
     cli.add_argument('--question', help='Optional targeted investigation request')
     cli.add_argument('--timeout', type=float, default=600, help='Total execution budget in seconds (default: 600)')
-    cli.add_argument('--restart-between-topics', action='store_true', help='Close/reopen the mailbox tab and authenticate between investigation topics')
+    cli.add_argument('--restart-between-topics', action='store_true', help='Compatibility flag: the basic workflow always uses a fresh tab per topic')
     cli.add_argument('--max-steps', type=int, default=100)
     cli.add_argument('--browser-number', type=int, default=1, help='Managed browser to attach to, numbered from 1')
     return cli
@@ -78,7 +79,12 @@ async def investigate(task, context, *, worker=None, timeout=600):
             error='Standalone mailbox execution time limit reached')
 
 
+def load_local_environment(path=None):
+    load_dotenv(path or Path(__file__).resolve().parents[1] / '.env', override=False)
+
+
 async def main(args):
+    load_local_environment()
     task = load_task(args)
     config = RunConfig(enable_submission=False, task_timeout=args.timeout, max_navigation_steps=args.max_steps)
     if args.browser_number < 1:

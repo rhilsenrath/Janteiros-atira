@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,6 +13,16 @@ from tools.run_mail import SelectedMailAccess, investigate, load_task, main, par
 
 
 class StandaloneMailTests(unittest.TestCase):
+    def test_dotenv_loads_key_without_overriding_runtime(self):
+        from tools.run_mail import load_local_environment
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as folder:
+            path=Path(folder)/'.env'
+            path.write_text('OPENAI_API_KEY=test-local-key\nQWEN_API_KEY=stale-key\n',encoding='utf-8')
+            with patch.dict(os.environ,{'QWEN_API_KEY':'current-runtime'},clear=True):
+                load_local_environment(path)
+                self.assertEqual(os.environ['OPENAI_API_KEY'],'test-local-key')
+                self.assertEqual(os.environ['QWEN_API_KEY'],'current-runtime')
+
     def test_restart_workflow_is_explicit_opt_in(self):
         self.assertFalse(parser().parse_args(['--reference','RFQ-1']).restart_between_topics)
         self.assertTrue(parser().parse_args(['--reference','RFQ-1','--restart-between-topics']).restart_between_topics)
