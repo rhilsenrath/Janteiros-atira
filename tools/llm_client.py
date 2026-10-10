@@ -1,5 +1,6 @@
 """Inject SDK clients; retain all authentication in the existing models module/SDK config."""
 import asyncio
+import os
 from dataclasses import dataclass
 from typing import Protocol
 from pydantic import BaseModel, ValidationError
@@ -17,6 +18,11 @@ class ModelClient(Protocol):
     async def ask(self, system: str, user: str, *, output_type=None, tools=None) -> ModelReply: ...
 
 class LLMClient:
+    # Fact extraction on gpt-6.1-sol: "low" was ~30% faster than the default with identical facts in a replay of a
+    # live Q&A extraction (18 s vs 26 s). Navigation decisions keep the model default. OPENAI_EXTRACTION_EFFORT
+    # overrides it ("default" leaves it unset); Qwen has its own no-thinking switch.
+    extraction_effort = os.environ.get("OPENAI_EXTRACTION_EFFORT", "low")
+
     def __init__(self, client=None, model=None, retries=1):
         if not 0 <= retries <= 3:
             raise ValueError("retries must be between 0 and 3")
@@ -37,6 +43,9 @@ class LLMClient:
             options["tools"] = tools
         if self.extra_body:
             options["extra_body"] = self.extra_body
+        if (output_type and output_type.__name__.endswith("Extraction") and self.extraction_effort != "default"
+                and options["model"] != models.QWEN_MODEL):
+            options["reasoning_effort"] = self.extraction_effort
         if output_type:
             options["response_format"] = {"type": "json_schema", "json_schema": {
                 "name": output_type.__name__, "schema": output_type.model_json_schema()}}

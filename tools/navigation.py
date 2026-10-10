@@ -60,6 +60,11 @@ def document_name(url, headers):
     return path if not suffix or path.lower().endswith(suffix) else path + suffix
 
 
+# Failed loads worth retrying: the portal answered with an HTTP error and no page, or dropped the connection.
+TRANSIENT_ERRORS = ("ERR_HTTP_RESPONSE_CODE_FAILURE", "ERR_EMPTY_RESPONSE", "ERR_CONNECTION_RESET",
+                    "ERR_CONNECTION_CLOSED", "ERR_CONNECTION_REFUSED")
+RETRY_DELAYS = (2, 4, 8, 16, None)  # seconds before the next attempt (30 s in all); None: last attempt
+
 # Expands collapsed content only: never follows links, submits forms or clicks overlays' actions.
 EXPAND_SCRIPT = """() => {
   let opened = 0;
@@ -71,12 +76,19 @@ EXPAND_SCRIPT = """() => {
   return opened;
 }"""
 
-# Closes rating/feedback/survey popups only, and only through a dismiss control: never submits a rating, never
-# touches consent, login or access forms. Returns the dismissed popups' text for the observation.
-DISMISS_FEEDBACK_SCRIPT = """() => {
-  const ASK = /bewert|feedback|umfrage|zufrieden|hilfreich|wie gefällt|sterne|rating|rate (this|us)|survey|satisf|helpful/i;
-  const NEVER = /cookie|anmeld|login|passwort|password|benutzername|beleg|kenntnis|bedingungen|zustimm|consent/i;
-  const DISMISS = /^(schließen|schliessen|×|✕|x|später|spaeter|nicht jetzt|nein,? danke|überspringen|ausblenden|close|not now|no,? thanks|skip|dismiss|later)$/i;
+# Closes rating/evaluation/feedback/survey popups, maintenance warnings, tip/tour and document-viewer notices only, and only through a
+# dismiss control: never submits a rating, never touches consent, login or access forms. `seen` (a WeakSet, from the
+# page-side watcher) limits each popup element to one click. Fake browser download bars are closed too; their links
+# (e.g. "Öffnen") are returned so the files stay reachable. Returns [{text, links}] of what was closed.
+DISMISS_FEEDBACK_SCRIPT = """(seen) => {
+  const BAR_CLOSE = /^((download-?leiste|downloads?) (schließen|schliessen|ausblenden)|close downloads?( bar)?|hide downloads?( bar)?)$/i;
+  const ASK = new RegExp([
+    'bewert|evaluat|evaluier|feedback|umfrage|zufrieden|hilfreich|wie gefällt|sterne|rating|rate (this|us)|survey|satisf|helpful',
+    'wartungsarbeit|wartungsfenster|wartungshinweis|systemwartung|wegen wartung|maintenance|geplante (arbeiten|unterbrechung|ausfallzeit)|scheduled (downtime|outage)',
+    'tipp|\\\\btips?\\\\b|wussten sie|did you know|rundgang|\\\\btour\\\\b|neue funktion|what.s new|neuigkeiten',
+    'dokumentenanzeige|dokumentanzeige|dokumentenbetrachter|document viewer|spaltenbreiten'].join('|'), 'i');
+  const NEVER = /cookie|anmeld|login|passwort|password|benutzername|beleg|kenntnis|bedingungen|zustimm|consent|roboter|robot|captcha/i;
+  const DISMISS = /^(schließen|schliessen|×|✕|x|später|spaeter|nicht jetzt|nein,? danke|überspringen|ausblenden|verstanden|alles klar|ok|okay|tour beenden|nicht mehr anzeigen|hinweis schließen|close|not now|no,? thanks|skip|dismiss|later|got it|end tour|don.t show again)$/i;
   const overlays = Array.from(document.querySelectorAll('body *')).slice(0, 4000).filter(e => {
     if (!e.getClientRects().length) return false;
     const st = getComputedStyle(e);
@@ -84,16 +96,45 @@ DISMISS_FEEDBACK_SCRIPT = """() => {
            (st.position === 'fixed' && (parseInt(st.zIndex) || 0) > 0);
   }).filter((e, i, all) => !all.some(o => o !== e && o.contains(e)));
   const dismissed = [];
+  for (const b of document.querySelectorAll('button,a,[role=button]')) {
+    if ((seen && seen.has(b)) || !b.getClientRects().length ||
+        !BAR_CLOSE.test((b.getAttribute('aria-label') || b.innerText || b.getAttribute('title') || '').trim())) continue;
+    let bar = b.parentElement;
+    for (let i = 0; i < 3 && bar && !bar.querySelector('a[href]') && bar.parentElement !== document.body; i++) bar = bar.parentElement;
+    const links = bar ? Array.from(bar.querySelectorAll('a[href]')).map(a => a.href).filter(h => !h.endsWith('#')) : [];
+    if (seen) seen.add(b);
+    b.click();
+    dismissed.push({text: 'download bar: ' + ((bar && bar.innerText) || '').replace(/\\s+/g, ' ').trim().slice(0, 160), links});
+  }
   for (const o of overlays) {
+    if (seen && seen.has(o)) continue;
     const text = (o.innerText || '').replace(/\\s+/g, ' ').trim();
     if (!ASK.test(text) || NEVER.test(text) || o.querySelector('input[type=password]')) continue;
     const button = Array.from(o.querySelectorAll('button,a,[role=button]')).find(b =>
       DISMISS.test((b.innerText || b.getAttribute('aria-label') || b.getAttribute('title') || '').trim()));
-    if (button) { button.click(); dismissed.push(text.slice(0, 160)); }
+    if (button) { if (seen) seen.add(o); button.click(); dismissed.push({text: text.slice(0, 160), links: []}); }
     else { o.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true})); }
   }
   return dismissed;
 }"""
+
+# Installed in every page of the context: dismisses those popups the moment they are added or shown, so they never
+# block an action or cost a model step. Dismissed texts wait in window.__autoDismissed for the next observation.
+AUTO_DISMISS_INIT_SCRIPT = """(() => {
+  const dismiss = """ + DISMISS_FEEDBACK_SCRIPT + """;
+  const seen = new WeakSet();
+  window.__autoDismissed = window.__autoDismissed || [];
+  let queued = false;
+  const run = () => { queued = false; try { window.__autoDismissed.push(...dismiss(seen)); } catch (e) {} };
+  const watch = () => {
+    new MutationObserver(() => { if (!queued) { queued = true; setTimeout(run, 30); } }).observe(document.documentElement,
+      {childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'open', 'hidden', 'aria-hidden']});
+    run();
+  };
+  if (document.documentElement) watch(); else document.addEventListener('DOMContentLoaded', watch);
+})();"""
+
+TAKE_AUTO_DISMISSED_SCRIPT = "() => (window.__autoDismissed || []).splice(0)"
 
 # Text of overlays (dialogs, fixed popups/notices): volatile, so it is not counted as page content.
 OVERLAY_TEXT_SCRIPT = """() => {
@@ -117,7 +158,8 @@ CONTROL_SCRIPT = """elements => elements.map((e, index) => ({
          e.innerText || e.getAttribute('title') || '').trim().slice(0, 160),
  href: e.href || e.src || e.data || null,
  options: e.tagName === 'SELECT' ? Array.from(e.options).map(o => ({label:o.text, value:o.value})) : null,
- row: (e.closest('tr')?.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 140) || null,
+ row: (t => t.length > 140 ? t.slice(0, 140) + '…' : t)((e.closest('tr')?.innerText || '').replace(/\\s+/g, ' ').trim()) || null,
+ row_key: (e.closest('tr')?.cells?.[0]?.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 40) || null,
  hint: (e.getAttribute('title') || e.getAttribute('aria-description') || e.getAttribute('data-tooltip') ||
         e.getAttribute('data-title') || '').trim().slice(0, 160) || null,
  checked: (e.type === 'checkbox' || e.type === 'radio') ? e.checked
@@ -207,6 +249,9 @@ class BrowserNavigator:
         self.statuses = {}  # url -> HTTP status of its last top-level load
         self.visited = []  # same-site pages seen during investigation, most recent last
         self.auth_paths = set()  # login/consent paths; never a useful destination
+        self.bar_links = set()  # links of automatically closed download bars
+        self.seen_links = {}  # url -> label of every same-site link observed in this run, still navigable later
+        self.page_links = {}  # page url -> {link url: label} observed on that page
         self._listen(page)
 
     def _listen(self, page):
@@ -237,6 +282,7 @@ class BrowserNavigator:
             else:
                 await route.abort()
         await self.page.context.route("**/*", restrict_network)
+        await self.page.context.add_init_script(AUTO_DISMISS_INIT_SCRIPT)
         # Portals can answer with transient error pages; retry the entry URL a bounded number of times.
         for attempt in range(3):
             try:
@@ -259,26 +305,63 @@ class BrowserNavigator:
             target = next((url for url in reversed(self.visited)), self.site.url)
             await self.page.goto(target, wait_until="domcontentloaded", timeout=self.action_timeout)
 
+    def unopened_links(self, page_url):
+        """Links observed on a page that were never opened, e.g. a tab only shown on an overview page."""
+        page_url = urljoin(self.page.url, page_url)
+        return [{"label": label, "url": url} for url, label in self.page_links.get(page_url, {}).items()
+                if url not in self.visited and url != page_url and urlsplit(url).path not in self.auth_paths][:12]
+
+    async def load(self, url=None):
+        """goto (or reload the current page), riding out a portal that briefly answers with HTTP errors and no
+        page: wait and retry instead of spending model steps on an error page."""
+        if url is None:
+            url = self.page.url if self.allowed(self.page.url) else next(reversed(self.visited), self.site.url)
+        for delay in RETRY_DELAYS:
+            try:
+                response = await self.page.goto(url, wait_until="domcontentloaded", timeout=self.action_timeout)
+                if delay is None or response is None or response.status < 500 or not await self.empty(response):
+                    return response  # an error page with content is the portal's answer, not an outage
+            except Exception as error:
+                if delay is None or not any(code in str(error) for code in TRANSIENT_ERRORS):
+                    raise
+            await asyncio.sleep(delay)
+
+    @staticmethod
+    async def empty(response):
+        try:
+            return len((await response.body()).strip()) < 200
+        except Exception:
+            return True
+
+    async def evaluate(self, frame, script, *args):
+        """Page script with a time limit: a page stuck loading must not hang the whole run."""
+        return await asyncio.wait_for(frame.evaluate(script, *args), self.action_timeout / 1000)
+
     async def dismiss_feedback(self):
-        """Close rating/feedback popups without a model step; they only block the page."""
+        """Close rating/evaluation, maintenance and tip popups and fake download bars without a model step; they
+        only block the page. Also reports those the page-side watcher already closed. Links of closed download
+        bars stay navigable."""
         dismissed = []
         for frame in self.page.frames[:12]:
             if frame.url not in ("about:blank", "") and not self.allowed(frame.url):
                 continue
             try:
-                dismissed += await frame.evaluate(DISMISS_FEEDBACK_SCRIPT)
+                dismissed += await self.evaluate(frame, TAKE_AUTO_DISMISSED_SCRIPT)
+                dismissed += await self.evaluate(frame, DISMISS_FEEDBACK_SCRIPT)
             except Exception:
                 pass
         if dismissed:
             await asyncio.sleep(.2)
-        return [clean(text) for text in dismissed]
+        for item in dismissed:
+            self.bar_links.update(link for link in item.get("links") or [] if self.allowed(link))
+        return [clean(item.get("text", "")) for item in dismissed]
 
     async def observe(self, offset=0):
         await self.ensure_page()
         dismissed = await self.dismiss_feedback()
         from tools.logging import redact
         self.targets = {}
-        self.links = set()
+        self.links = set(self.bar_links)
         frames = []
         remaining_chars = self.text_limit
         remaining_controls = 120
@@ -289,27 +372,30 @@ class BrowserNavigator:
                 text = clean(await frame.locator("body").inner_text(timeout=self.action_timeout))
                 if frame_number and self.allowed(frame.url):
                     self.links.add(frame.url)  # an embedded same-site frame can be opened as its own page
-                controls = await frame.locator(CONTROLS).evaluate_all(CONTROL_SCRIPT)
+                controls = await asyncio.wait_for(frame.locator(CONTROLS).evaluate_all(CONTROL_SCRIPT), self.action_timeout / 1000)
                 entries = []
                 for control in controls[:remaining_controls]:
                     target = f"f{frame_number}:e{control['index']}"
                     self.targets[target] = (frame, control['index'], control)
                     if control.get('href') and self.allowed(control['href']):
                         self.links.add(control['href'])
+                        label = clean(control.get('label') or '')[:80]
+                        self.seen_links.setdefault(control['href'], label)
+                        self.page_links.setdefault(self.page.url, {}).setdefault(control['href'], label)
                     entries.append({"target": target, **{k: clean(v) for k, v in control.items()
                                                          if k not in ('index', 'visible')}})
                 remaining_controls -= len(entries)
                 overlay = [c.get("label") for c in entries if c.get("in_overlay")]
                 try:
-                    image_text = [clean(t)[:160] for t in await frame.evaluate(IMAGE_TEXT_SCRIPT)]
+                    image_text = [clean(t)[:160] for t in await self.evaluate(frame, IMAGE_TEXT_SCRIPT)]
                 except Exception:
                     image_text = []
                 try:
-                    dom_text = [{k: clean(v) for k, v in item.items()} for item in await frame.evaluate(DOM_TEXT_SCRIPT)]
+                    dom_text = [{k: clean(v) for k, v in item.items()} for item in await self.evaluate(frame, DOM_TEXT_SCRIPT)]
                 except Exception:
                     dom_text = []
                 try:
-                    overlay_text = [clean(t)[:600] for t in await frame.evaluate(OVERLAY_TEXT_SCRIPT)]
+                    overlay_text = [clean(t)[:600] for t in await self.evaluate(frame, OVERLAY_TEXT_SCRIPT)]
                 except Exception:
                     overlay_text = []
                 frames.append({"frame": frame_number, "url": frame.url,
@@ -331,6 +417,7 @@ class BrowserNavigator:
                        "visited_pages": self.visited[-10:],
                        "http_status": self.statuses.get(self.page.url),
                        "auto_dismissed": dismissed or None,
+                       "download_bar_links": sorted(self.bar_links) or None,
                        "downloads": [{"index": i, "name": d.suggested_filename} for i,d in enumerate(self.downloads)]}
         # Labels/URLs can contain account values too; redact the entire observation representation.
         import json
@@ -379,9 +466,12 @@ class BrowserNavigator:
         if is_link(chosen):
             raise ValueError("reveal works on in-page buttons/toggles, not on links")
         start_url = self.page.url
-        candidates = [c for c in await frame.locator(CONTROLS).evaluate_all(CONTROL_SCRIPT)
+        candidates = [c for c in await asyncio.wait_for(frame.locator(CONTROLS).evaluate_all(CONTROL_SCRIPT), self.action_timeout / 1000)
                       if c["tag"] == chosen["tag"] and c["label"] == chosen["label"] and not is_link(c)][:limit]
         lines = lambda text: [line.strip() for line in clean(text).splitlines() if line.strip()]
+        # Each result is labelled by its row's key cell (e.g. "A-1", an answer number): a shortened copy of the
+        # whole row could cut a value mid-way (e.g. "GR-8" for "GR-8923") and read like a different value.
+        name = lambda control: clean(control.get('row_key') or control.get('row') or control['label'])
         results = []
         baseline = set(lines(await frame.locator("body").inner_text(timeout=self.action_timeout)))
         for control in candidates:
@@ -389,7 +479,7 @@ class BrowserNavigator:
             try:
                 await frame.locator(CONTROLS).nth(control["index"]).click(timeout=min(self.action_timeout, 3000))
             except Exception as error:
-                results.append(f"{clean(control.get('row') or control['label'])} => (not clickable: {type(error).__name__})")
+                results.append(f"{name(control)} => (not clickable: {type(error).__name__})")
                 continue
             await asyncio.sleep(.25)
             if self.page.url != start_url:
@@ -402,7 +492,7 @@ class BrowserNavigator:
             after = lines(await frame.locator("body").inner_text(timeout=self.action_timeout))
             # Only text that was never on the page before (a closing neighbour is not "revealed").
             revealed = [line for line in after if line not in before and line not in baseline]
-            results.append(f"{clean(control.get('row') or control['label'])} => {' | '.join(revealed) or '(nothing new)'}")
+            results.append(f"{name(control)} => {' | '.join(revealed) or '(nothing new)'}")
         text = redact("\n".join(results), self.secrets)
         return {"name": f"revealed by '{chosen['label']}' ({len(candidates)} controls)", "text": text}
 
@@ -446,9 +536,9 @@ class BrowserNavigator:
                 await response.dispose()
         if action.operation == "goto":
             url = urljoin(self.page.url, action.url)
-            if not self.allowed(url) or (url not in self.links and url not in self.visited):
+            if not self.allowed(url) or (url not in self.links and url not in self.visited and url not in self.seen_links):
                 raise ValueError("Only observed same-site links or visited_pages are navigable")
-            await self.page.goto(url, wait_until="domcontentloaded", timeout=self.action_timeout)
+            await self.load(url)
         elif action.operation == "switch_tab":
             pages = self.page.context.pages
             if action.tab >= len(pages) or not self.allowed(pages[action.tab].url):
@@ -472,11 +562,11 @@ class BrowserNavigator:
             for frame in self.page.frames[:12]:
                 if frame.url not in ("about:blank", "") and not self.allowed(frame.url):
                     continue
-                await frame.evaluate(EXPAND_SCRIPT)
+                await self.evaluate(frame, EXPAND_SCRIPT)
             await asyncio.sleep(.3)
         elif action.operation == "reload":
             # Recovery from flaky error pages; repeats only the current same-site request.
-            await self.page.reload(wait_until="domcontentloaded", timeout=self.action_timeout)
+            await self.load()
             if not self.allowed(self.page.url):
                 raise ValueError("Reload left assigned site")
         elif action.operation == "scroll":
@@ -523,6 +613,11 @@ class BrowserNavigator:
             elif action.operation == "set":
                 await self.set_control(locator, control, value)
         await asyncio.sleep(.15)
+        if self.page.url.startswith("chrome-error:") or (
+                (self.statuses.get(self.page.url) or 0) >= 500 and not (await self.page.inner_text("body")).strip()):
+            # The link's page failed to load (a transient HTTP error, often without a page): load it with retries.
+            href = control.get('href')
+            await self.load(href if href and self.allowed(href) else None)
         if self.page.url not in ("about:blank", "") and not self.allowed(self.page.url):
             raise ValueError("Navigation left assigned site")
         # A model must select a newly opened tab before its content is read.

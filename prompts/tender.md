@@ -16,9 +16,10 @@ Working in an unreliable portal (general strategies, not fixed click paths):
   slider, fields to fill, then a confirm button that is disabled until everything required is done. Complete
   them with `set`/`fill` using values from the page, brief or tender context, verify each control's
   checked/value state, then confirm. They are read-access acknowledgements, never a bid or message.
-- Overlays (cookie walls, notices, fake browser/download bars) can cover the page; controls with
-  `in_overlay=true` belong to them. Close or dismiss them (minimal/necessary-only choice for consent) before
-  clicking underneath. A click that times out because another element intercepts it means an overlay is open.
+- Overlays (cookie walls, notices) can cover the page; controls with `in_overlay=true` belong to them. Close or
+  dismiss them (minimal/necessary-only choice for consent) before clicking underneath. A click that times out
+  because another element intercepts it means an overlay is open. Rating/evaluation, maintenance, tip and document-viewer popups
+  and fake download bars are closed automatically (`auto_dismissed`); do not spend steps on them.
 - Logouts can happen at any time; re-login is automatic and the portal returns to the last page. Continue
   from there, or `goto` a page in `visited_pages`. Never navigate back through login/consent pages.
 - Error pages (http_status >= 400, or error text): `reload` once, otherwise reach the content another way.

@@ -79,6 +79,7 @@ class ConsoleLogger(RunLogger):
 
 class ConsoleNavigator(BrowserNavigator):
     logged_urls: set = set()
+    logged_overlays: set = set()
     async def initialize(self):
         say(f"browser opening {self.site.url}")
         await super().initialize()
@@ -101,6 +102,10 @@ class ConsoleNavigator(BrowserNavigator):
                         f"{' expanded=' + str(c['expanded']) if c.get('expanded') is not None else ''}"
                         f"{' overlay' if c.get('in_overlay') else ''}")
         for f in frames:
+            overlay = " ".join((f.get("overlay_text") or "").split())
+            if overlay and overlay not in self.logged_overlays:  # popups/notices: record each new one once
+                self.logged_overlays.add(overlay)
+                say(f"overlay \"{overlay[:400]}\" controls={f.get('overlay_controls')}")
             if any(c.get("type") == "password" for c in f.get("controls", [])):
                 say(f"page   login form visible in frame {f.get('frame')} ({f.get('url')})")
         say(f"page   {observation.get('url')} | {len(frames)} frame(s), {controls} controls | "
@@ -130,7 +135,7 @@ class ConsoleLLM(LLMClient):
         except ValueError:
             feedback = {}
         if feedback.get("error"):
-            say(f"error  {feedback.get('error_type')}: {' '.join(str(feedback['error']).split())[:200]}")
+            say(f"error  {feedback.get('error_type')}: {' '.join(str(feedback['error']).split())[:800]}")
         say(f"model  thinking: {purpose} ...")
         started = time.monotonic()
         reply = await super().ask(system, user, output_type=output_type, tools=tools)
@@ -146,6 +151,9 @@ class ConsoleLLM(LLMClient):
         elif value is not None and hasattr(value, "output"):
             say(f"model  ({took:.1f}s) extracted status={value.status} {summary(value.output)} "
                 f"citations={len(value.citations)} missing={len(value.missing)}")
+        usage = reply.usage or {}
+        say(f"tokens prompt={usage.get('prompt_tokens')} output={usage.get('completion_tokens')} "
+            f"reasoning={(usage.get('completion_tokens_details') or {}).get('reasoning_tokens')}")
         return reply
 
 

@@ -52,6 +52,16 @@ def by_id(data):
 
 
 class ResolutionTests(unittest.TestCase):
+    def test_extracted_text_attributes_win_over_printed_placeholders(self):
+        # Live: the table cell said "Prüfvermerk siehe Freigabestand" and showed no Kataloggruppe; the
+        # Originalwortlaut gave GR-8923 and the revealed Prüfvermerk EN 1493.
+        a1 = requirement('A-1', 'R-6156', catalogue_group='GR-8923', certification='EN 1493', stroke='200',
+                         original_values={'stroke': '200', 'certification': 'Prüfvermerk siehe Freigabestand'})
+        resolved, missing = resolve_specifications(specification(a1), tender())
+        a1 = by_id(resolved)['A-1']
+        self.assertEqual((a1.catalogue_group, a1.certification, a1.stroke), ('GR-8923', 'EN 1493', Decimal('200')))
+        self.assertFalse([m for m in missing if 'A-1' in m.question])
+
     def test_explicitly_current_revision_governs_and_other_revisions_are_kept_apart(self):
         data = specification(requirement('A-2', 'R-1001', bore='50'), requirement('A-2', 'R-6156'),
                              requirement('A-5', 'R-6156', pieces_per_set='2'))

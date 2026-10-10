@@ -97,7 +97,7 @@ class NavigationTests(unittest.IsolatedAsyncioTestCase):
         element.evaluate=evaluate
         frame=SimpleNamespace(locator=lambda selector:SimpleNamespace(nth=lambda index:element),
             get_by_label=lambda *args,**kwargs:SimpleNamespace(count=AsyncMock(return_value=0)))
-        page=SimpleNamespace(url=site.url,on=lambda *args:None,context=SimpleNamespace(pages=[],route=AsyncMock()),
+        page=SimpleNamespace(url=site.url,on=lambda *args:None,context=SimpleNamespace(pages=[],route=AsyncMock(),add_init_script=AsyncMock()),
             goto=AsyncMock(),mouse=SimpleNamespace(wheel=AsyncMock()))
         page.context.pages=[page]
         nav=BrowserNavigator(page,site)

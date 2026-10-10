@@ -169,8 +169,12 @@ def resolve_specifications(data: TechnicalRequirements, tender: TenderData | Non
         if not revision or (r.revision and normalize_reference(r.revision) != normalize_reference(revision)):
             others.append(r)  # other/unknown revision: kept as read, never applied
             continue
-        originals = dict(r.original_values) or {
-            field: str(getattr(r, field)) for field in ATTRIBUTES if getattr(r, field) is not None}
+        # Numbers come from the printed original (parsed with its stated locale); text attributes prefer the
+        # extracted field, since a printed cell can be a placeholder (e.g. certification "Prüfvermerk siehe
+        # Freigabestand", resolved by the revealed Prüfvermerk) or lack a value given elsewhere (Originalwortlaut).
+        fields = {field: str(getattr(r, field)) for field in ATTRIBUTES if getattr(r, field) is not None}
+        originals = {**fields, **{name: value for name, value in r.original_values.items()
+                                  if name in NUMERIC or name not in fields}}
         if r.stroke_kind and "stroke_kind" not in originals:
             originals["stroke_kind"] = r.stroke_kind
         values: dict = {field: (parse_quantity(originals[field]) if field in NUMERIC else originals[field])
