@@ -17,6 +17,33 @@ import httpx  # comes with the OpenAI SDK
 from openai import AsyncOpenAI
 
 QWEN_MODEL = "qwen3.8-flash-next"
+OPENAI_MODEL = "gpt-6.1-sol"  # override with OPENAI_MODEL
+# Qwen's hidden reasoning turned a 3 s structured call into 60 s+; the agents need fast single-step decisions.
+QWEN_NO_THINKING = {"chat_template_kwargs": {"enable_thinking": False}}
+
+
+def load_local_env(path: str = ".env") -> None:
+    """Locally only: read KEY=VALUE lines from the git-ignored .env without overriding the environment.
+    Runs never see this file (it is not packed); there OPENAI_API_KEY is a team secret."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            lines = handle.read().splitlines()
+    except OSError:
+        return
+    for line in lines:
+        key, sep, value = line.strip().partition("=")
+        if sep and key and not key.startswith("#"):
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+def agent_model() -> tuple[AsyncOpenAI, str, dict]:
+    """The agents' model: OpenAI when OPENAI_API_KEY is set (in a run OPENAI_BASE_URL points at the metering
+    proxy), otherwise the hosted Qwen without hidden reasoning. Returns client, model id and extra body."""
+    if os.environ.get("OPENAI_API_KEY"):
+        client = AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"], base_url=os.environ.get("OPENAI_BASE_URL"),
+                             timeout=120)
+        return client, os.environ.get("OPENAI_MODEL") or OPENAI_MODEL, {}
+    return qwen(), QWEN_MODEL, QWEN_NO_THINKING
 
 
 def qwen() -> AsyncOpenAI:

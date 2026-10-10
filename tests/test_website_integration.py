@@ -93,7 +93,7 @@ class NavigationTests(unittest.IsolatedAsyncioTestCase):
         site=manager().for_role('tender')
         control={'tag':'input','name':'random-login-field','type':'password','label':'Secret label','href':None}
         element=SimpleNamespace(fill=AsyncMock(),click=AsyncMock(),press=AsyncMock(),select_option=AsyncMock())
-        async def evaluate(script):return site.url if 'closest' in script else control
+        async def evaluate(script):return site.url if "closest('form')" in script else control
         element.evaluate=evaluate
         frame=SimpleNamespace(locator=lambda selector:SimpleNamespace(nth=lambda index:element),
             get_by_label=lambda *args,**kwargs:SimpleNamespace(count=AsyncMock(return_value=0)))

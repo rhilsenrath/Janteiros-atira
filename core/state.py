@@ -20,7 +20,9 @@ def merge_progress(previous, incoming):
     if isinstance(incoming, list):
         def identity(value):
             if isinstance(value, Evidence): return (value.id, value.field, value.excerpt)
-            for name in ("position_id", "requirement_id", "material_id", "identifier", "url", "key"):
+            # Specific ids first: one position can carry several changes/amendments.
+            for name in ("change_id", "amendment_id", "identifier", "position_id", "requirement_id",
+                         "material_id", "url", "key", "label"):
                 key = getattr(value, name, None)
                 if key is not None:
                     return (name, key, getattr(value, "effective_at", None))

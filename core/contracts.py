@@ -35,22 +35,81 @@ class Provenanced(Record):
     evidence: list[Evidence] = Field(default_factory=list)
 
 class TenderPosition(Provenanced):
+    """`quantity`/`unit` and the commercial keys are the effective values resolved by
+    services.tender_resolution; `original_*` keep the bill-of-quantities values."""
     position_id: str
+    description: str | None = None
     quantity: Decimal | None = None
     unit: str | None = None
+    original_quantity: Decimal | None = None
+    original_unit: str | None = None
+    quantity_basis: str | None = None  # "original" or "answer:<identifier>" once resolved
+    specification_reference: str | None = None
     requirement_id: str | None = None
     condition_group: str | None = None
     packaging_key: str | None = None
     delivery_key: str | None = None
     setup_pool: str | None = None
+    setup_pool_member: bool | None = None  # False: explicitly no shared setup pool ("kein Rüstpool")
+    bonus_plan: str | None = None
+    bonus_member: bool | None = None  # False: explicitly no project bonus ("kein Projektbonus")
+    setup_fee: Decimal | None = None  # ordinary one-off setup fee for this position, net EUR, from Q&A
+
+TenderChangeType = Literal["quantity", "condition_group", "packaging_key", "delivery_key", "setup_pool",
+                           "bonus_plan", "setup_fee", "technical_amendment", "other"]
+
+class ClarificationChange(Record):
+    """One effect of a bidder Q&A answer on one position (or the whole tender when position_id is None)."""
+    change_id: str | None = None  # assigned by resolution: "<answer>:<type>:<position>"
+    change_type: TenderChangeType
+    position_id: str | None = None
+    value: str | None = None  # new quantity / key / pool id / free text, as published
+    unit: str | None = None
+    specification_reference: str | None = None
+    revision: str | None = None
+    applies: bool = True  # False: the answer states the position is NOT a member (no pool, no bonus)
+    tender_reference: str | None = None  # reference named in the answer for this change, if any
 
 class Clarification(Provenanced):
-    identifier: str
-    text: str
+    identifier: str  # answer number as published, e.g. "A-07"
+    text: str  # complete answer text
+    question: str | None = None
     position_id: str | None = None
     dated_at: datetime | None = None
+    date_text: str | None = None  # publication date exactly as displayed (row, tooltip)
+    tender_reference: str | None = None  # reference the answer names, if any
     withdraws: list[str] = Field(default_factory=list)
     specification_revision: str | None = None
+    changes: list[ClarificationChange] = Field(default_factory=list)
+    withdrawn: bool | None = None  # resolved: withdrawn by a later effective answer
+    withdrawn_by: str | None = None
+
+class TenderAmendment(Provenanced):
+    """Resolved audit trail of a change: which answer set what, and whether it is still effective."""
+    amendment_id: str
+    change_type: TenderChangeType
+    position_id: str | None = None
+    answer: str
+    dated_at: datetime | None = None
+    value: str | None = None
+    unit: str | None = None
+    specification_reference: str | None = None
+    revision: str | None = None
+    status: Literal["effective", "superseded", "withdrawn", "not_applicable"]
+    replaced_by: str | None = None
+    reason: str | None = None  # why a change is not applicable (other reference, after scenario date)
+
+class TenderDate(Provenanced):
+    label: str  # e.g. "Angebotsfrist", "Fragenfrist"
+    text: str  # as displayed, including the portal's timezone note
+    at: datetime | None = None
+    timezone: str | None = None
+
+class SubmissionRequirements(Provenanced):
+    configurator_fields: list[str] = Field(default_factory=list)
+    signing_procedure: str | None = None
+    steps: list[str] = Field(default_factory=list)
+    partial_submission: str | None = None
 
 class DocumentReference(Provenanced):
     title: str
@@ -61,9 +120,16 @@ class DocumentReference(Provenanced):
 class TenderData(Provenanced):
     kind: Literal["tender"] = "tender"
     reference: str | None = None
+    title: str | None = None
+    buyer: str | None = None
     scenario_date: datetime | None = None
+    timezone: str | None = None
+    dates: list[TenderDate] = Field(default_factory=list)
     positions: list[TenderPosition] = Field(default_factory=list)
     clarifications: list[Clarification] = Field(default_factory=list)
+    qa_complete: bool | None = None  # every Q&A page/answer was read, not only the first page
+    amendments: list[TenderAmendment] = Field(default_factory=list)
+    submission: SubmissionRequirements | None = None
     documents: list[DocumentReference] = Field(default_factory=list)
     conflicts: list[str] = Field(default_factory=list)
 

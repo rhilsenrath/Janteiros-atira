@@ -49,7 +49,8 @@ API answer transport; real RFQ submissions will use the Tender website and retur
 | `core/orchestrator.py` | Concurrent execution, partial results, event-based dependencies, retries and deadlines |
 | `core/contracts.py`, `core/state.py`, `core/config.py`, `core/events.py` | Typed contracts, in-memory evidence/state and lifecycle configuration |
 | `agents/website.py` | Shared real authentication, investigation, citation verification and partial-result publication |
-| `agents/tender.py` | Tender/reference/position/Q&A/document objective |
+| `agents/tender.py` | Tender portal objective, Q&A coverage, amendment resolution hook and guarded `submit_bid()` |
+| `services/tender_resolution.py` | Deterministic effective quantities/keys from non-withdrawn, latest Q&A answers |
 | `agents/supplier.py` | Applicable technical revision/specification objective |
 | `agents/erp.py` | Narrow model-directed candidate/material/price/stock objective |
 | `agents/mail.py` | Exact-reference authorized commercial message objective |
@@ -142,6 +143,30 @@ Configure limits by injecting `RunConfig`; bounded retries and cancellation pres
 submission remains blocked by the unfinished pricing/business-validation/TAN/Tender implementations. No dummy bid
 or fabricated signing token is generated. `Decimal` and explicit HALF_UP helpers and the documented API answer mapping
 remain unchanged. Complete pricing rules must be implemented and validated before enabling actual submission.
+
+## Tender Agent
+
+The model navigates the portal (cookie wall, transient error pages via `reload`, expression of interest,
+iframes, ZIP members) and extracts published facts only: reference, title, buyer, dated deadlines with the
+portal timezone, bill-of-quantities positions (`original_quantity`/`original_unit`, specification and
+requirement references), every Q&A answer (number, date, question, full text, `withdraws`, structured
+`changes`), documents and the bid configurator fields/signing/steps. `services/tender_resolution.py` then
+derives, deterministically and idempotently:
+
+- withdrawn answers (a withdrawal by a withdrawn answer is void) with `withdrawn_by`;
+- effective `quantity`/`unit` per position from the latest non-withdrawn answer, otherwise the original, with
+  `quantity_basis` (`original` or `answer:<id>`);
+- effective `condition_group`, `packaging_key`, `delivery_key` and `setup_pool`;
+- an `amendments` trail (effective/superseded/withdrawn, `replaced_by`) including scoped technical amendments;
+- explicit missing information and conflicts (unknown withdrawn answer, unknown position, unordered answers).
+
+Citations whose `reference` names an answer number or position id are attached to that record only, so each
+answer carries its own source URL/excerpt. The reference is published with the first `inspect`, so Mail starts
+before Tender finishes; Supplier, ERP and Pricing read the same typed snapshot. Tender is only `complete` when
+all positions are resolved, all Q&A pages were read (`qa_complete`) and the configurator was inspected.
+`submit_bid()` validates reference, effective `Stück` quantities, provenance, completeness, the enable flag and
+a TAN, then reports blocked: configurator filling and signing are not implemented yet. `Satz` conversion,
+specifications, materials and prices remain with Supplier/Pricing.
 
 ## Local verification and first real integration test
 

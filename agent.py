@@ -47,6 +47,7 @@ async def solve(task: dict, page) -> dict | None:
 
 
 async def main() -> int:
+    models.load_local_env()  # local .env only (git-ignored, never packed); runs use team secrets
     task, token = contract.load_run()
     sites = f"{len(task['access'])} runtime entries"
     print(f"Run {task.get('run_id') or '(local: the scouting logins, nothing counts)'}; websites: {sites}; "
