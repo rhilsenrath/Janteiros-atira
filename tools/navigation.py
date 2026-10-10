@@ -8,7 +8,7 @@ from core.contracts import Record
 from tools.logging import redact
 
 class BrowserAction(Record):
-    operation: Literal["inspect", "click", "fill", "select", "press", "scroll", "back", "reload", "expand", "reveal", "goto", "switch_tab", "read_document", "finish"]
+    operation: Literal["inspect", "click", "fill", "select", "press", "scroll", "back", "reload", "expand", "reveal", "set", "goto", "switch_tab", "read_document", "finish"]
     target: str | None = None
     value: str | None = None
     secret: Literal["username", "password"] | None = None
@@ -21,13 +21,14 @@ class BrowserAction(Record):
 
     @model_validator(mode="after")
     def valid_shape(self):
-        if self.operation in ("click", "fill", "select", "press", "reveal") and not self.target:
+        if self.operation in ("click", "fill", "select", "press", "reveal", "set") and not self.target:
             raise ValueError("Action requires a currently observed target")
-        if self.operation in ("fill", "select", "press") and self.value is None and self.secret is None:
+        if self.operation in ("fill", "select", "press", "set") and self.value is None and self.secret is None:
             raise ValueError("Form action requires a value or secret reference")
         if self.secret is not None and (self.operation != "fill" or self.value is not None):
             raise ValueError("Credentials may only be injected into a fill action")
-        if self.operation == "press" and self.value not in ("Enter", "Tab", "Escape", "ArrowDown", "ArrowUp"):
+        if self.operation == "press" and self.value not in ("Enter", "Tab", "Escape", "ArrowDown", "ArrowUp",
+                "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown", "Space"):
             raise ValueError("Unsupported key")
         if self.operation == "goto" and not self.url:
             raise ValueError("Navigation requires an observed URL")
@@ -70,6 +71,30 @@ EXPAND_SCRIPT = """() => {
   return opened;
 }"""
 
+# Closes rating/feedback/survey popups only, and only through a dismiss control: never submits a rating, never
+# touches consent, login or access forms. Returns the dismissed popups' text for the observation.
+DISMISS_FEEDBACK_SCRIPT = """() => {
+  const ASK = /bewert|feedback|umfrage|zufrieden|hilfreich|wie gefällt|sterne|rating|rate (this|us)|survey|satisf|helpful/i;
+  const NEVER = /cookie|anmeld|login|passwort|password|benutzername|beleg|kenntnis|bedingungen|zustimm|consent/i;
+  const DISMISS = /^(schließen|schliessen|×|✕|x|später|spaeter|nicht jetzt|nein,? danke|überspringen|ausblenden|close|not now|no,? thanks|skip|dismiss|later)$/i;
+  const overlays = Array.from(document.querySelectorAll('body *')).slice(0, 4000).filter(e => {
+    if (!e.getClientRects().length) return false;
+    const st = getComputedStyle(e);
+    return e.matches('[role=dialog],[role=alertdialog],dialog[open],[aria-modal=true]') ||
+           (st.position === 'fixed' && (parseInt(st.zIndex) || 0) > 0);
+  }).filter((e, i, all) => !all.some(o => o !== e && o.contains(e)));
+  const dismissed = [];
+  for (const o of overlays) {
+    const text = (o.innerText || '').replace(/\\s+/g, ' ').trim();
+    if (!ASK.test(text) || NEVER.test(text) || o.querySelector('input[type=password]')) continue;
+    const button = Array.from(o.querySelectorAll('button,a,[role=button]')).find(b =>
+      DISMISS.test((b.innerText || b.getAttribute('aria-label') || b.getAttribute('title') || '').trim()));
+    if (button) { button.click(); dismissed.push(text.slice(0, 160)); }
+    else { o.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true})); }
+  }
+  return dismissed;
+}"""
+
 # Text of overlays (dialogs, fixed popups/notices): volatile, so it is not counted as page content.
 OVERLAY_TEXT_SCRIPT = """() => {
   const out = [];
@@ -95,6 +120,15 @@ CONTROL_SCRIPT = """elements => elements.map((e, index) => ({
  row: (e.closest('tr')?.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 140) || null,
  hint: (e.getAttribute('title') || e.getAttribute('aria-description') || e.getAttribute('data-tooltip') ||
         e.getAttribute('data-title') || '').trim().slice(0, 160) || null,
+ checked: (e.type === 'checkbox' || e.type === 'radio') ? e.checked
+   : (e.hasAttribute('aria-checked') ? e.getAttribute('aria-checked') === 'true' : null),
+ value: e.type === 'password' ? null : (e.tagName === 'SELECT' ? (e.selectedOptions?.[0]?.text || null)
+   : (('value' in e && ['INPUT', 'TEXTAREA'].includes(e.tagName) && !['checkbox', 'radio', 'button', 'submit'].includes(e.type))
+      ? String(e.value).slice(0, 80) : (e.getAttribute('aria-valuenow') ?? e.getAttribute('aria-valuetext')))),
+ range: (e.type === 'range' || e.getAttribute('role') === 'slider')
+   ? {min: e.min || e.getAttribute('aria-valuemin'), max: e.max || e.getAttribute('aria-valuemax'),
+      step: e.step || null} : null,
+ required: (e.required || e.getAttribute('aria-required') === 'true') || null,
  expanded: e.hasAttribute('aria-expanded') ? e.getAttribute('aria-expanded') === 'true'
    : (e.tagName === 'SUMMARY' ? !!e.parentElement?.open : null),
  in_overlay: !!e.closest('[role=dialog],[role=alertdialog],dialog[open],[aria-modal=true]') || (() => {
@@ -105,7 +139,58 @@ CONTROL_SCRIPT = """elements => elements.map((e, index) => ({
    return false; })(),
  visible: !!(e.getClientRects().length) && getComputedStyle(e).visibility !== 'hidden'
 })).filter(e => e.visible)"""
-CONTROLS = "summary,[aria-expanded],a,button,input:not([type=hidden]),select,textarea,[role=button],[role=link],[role=tab],[role=checkbox],[contenteditable=true],embed,object"
+CONTROLS = ("summary,[aria-expanded],a,button,input:not([type=hidden]),select,textarea,[role=button],[role=link],"
+            "[role=tab],[role=checkbox],[role=radio],[role=switch],[role=slider],[role=spinbutton],[role=combobox],"
+            "[role=option],[role=menuitem],[role=menuitemcheckbox],label:has(input[type=checkbox]),"
+            "label:has(input[type=radio]),[contenteditable=true],embed,object")
+
+# Sets a form control to a model-chosen value and fires the events frameworks listen to.
+SET_VALUE_SCRIPT = """(e, value) => {
+  const proto = e.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+  setter ? setter.call(e, value) : (e.value = value);
+  e.dispatchEvent(new Event('input', {bubbles: true}));
+  e.dispatchEvent(new Event('change', {bubbles: true}));
+  return e.value;
+}"""
+
+# Images carry information only through their accessible text (alt/title); no image recognition is done.
+IMAGE_TEXT_SCRIPT = """() => Array.from(document.images).filter(i => i.getClientRects().length)
+  .map(i => (i.alt || i.title || '').trim()).filter(Boolean).slice(0, 20)"""
+
+# Text that is part of the page's DOM but missing from innerText: SVG text, CSS-generated content
+# (::before/::after), aria-label/title on non-control elements, image file names, readonly fields.
+# Pixels of raster images/canvas are never read (no OCR).
+DOM_TEXT_SCRIPT = """() => {
+  const out = [], seen = new Set();
+  const add = (kind, text, near) => {
+    text = (text || '').replace(/\\s+/g, ' ').trim();
+    if (!text || seen.has(kind + text)) return;
+    seen.add(kind + text);
+    out.push({kind, text: text.slice(0, 120), near: (near || '').replace(/\\s+/g, ' ').trim().slice(0, 80) || null});
+  };
+  const context = e => (e.closest('label,fieldset,section,form,div')?.innerText || '');
+  document.querySelectorAll('svg text, svg title').forEach(t => add('svg', t.textContent, context(t)));
+  const nodes = Array.from(document.querySelectorAll('body *')).slice(0, 3000);
+  for (const e of nodes) {
+    if (!e.getClientRects().length) continue;
+    for (const pseudo of ['::before', '::after']) {
+      const c = getComputedStyle(e, pseudo).content;
+      if (c && c !== 'none' && c !== 'normal' && /[0-9A-Za-z]/.test(c)) add('css' + pseudo, c.replace(/^["']|["']$/g, ''), e.innerText || context(e));
+    }
+    const label = e.getAttribute('aria-label') || e.getAttribute('title');
+    if (label && !e.matches('a,button,input,select,textarea,[role=button],[role=link]') && !(e.innerText || '').includes(label))
+      add('attribute', label, context(e));
+    if (e.matches('input[readonly],output')) add('readonly', e.value || e.textContent, context(e));
+  }
+  document.querySelectorAll('img').forEach(i => {
+    if (!i.getClientRects().length || i.alt) return;
+    const name = decodeURIComponent((i.currentSrc || i.src || '').split('/').pop().split('?')[0]);
+    add('image_without_text', (name.startsWith('data:') ? 'inline image' : name) + ` (${i.naturalWidth}x${i.naturalHeight})`, context(i));
+  });
+  document.querySelectorAll('canvas').forEach(c => add('canvas', c.getAttribute('aria-label') || `canvas ${c.width}x${c.height}`, context(c)));
+  return out.slice(0, 40);
+}"""
 
 class BrowserNavigator:
     def __init__(self, page, site, secrets=(), action_timeout=10000, text_limit=12000):
@@ -174,8 +259,23 @@ class BrowserNavigator:
             target = next((url for url in reversed(self.visited)), self.site.url)
             await self.page.goto(target, wait_until="domcontentloaded", timeout=self.action_timeout)
 
+    async def dismiss_feedback(self):
+        """Close rating/feedback popups without a model step; they only block the page."""
+        dismissed = []
+        for frame in self.page.frames[:12]:
+            if frame.url not in ("about:blank", "") and not self.allowed(frame.url):
+                continue
+            try:
+                dismissed += await frame.evaluate(DISMISS_FEEDBACK_SCRIPT)
+            except Exception:
+                pass
+        if dismissed:
+            await asyncio.sleep(.2)
+        return [clean(text) for text in dismissed]
+
     async def observe(self, offset=0):
         await self.ensure_page()
+        dismissed = await self.dismiss_feedback()
         from tools.logging import redact
         self.targets = {}
         self.links = set()
@@ -201,11 +301,21 @@ class BrowserNavigator:
                 remaining_controls -= len(entries)
                 overlay = [c.get("label") for c in entries if c.get("in_overlay")]
                 try:
+                    image_text = [clean(t)[:160] for t in await frame.evaluate(IMAGE_TEXT_SCRIPT)]
+                except Exception:
+                    image_text = []
+                try:
+                    dom_text = [{k: clean(v) for k, v in item.items()} for item in await frame.evaluate(DOM_TEXT_SCRIPT)]
+                except Exception:
+                    dom_text = []
+                try:
                     overlay_text = [clean(t)[:600] for t in await frame.evaluate(OVERLAY_TEXT_SCRIPT)]
                 except Exception:
                     overlay_text = []
                 frames.append({"frame": frame_number, "url": frame.url,
                     "overlay_controls": overlay or None,
+                    "image_text": image_text or None,
+                    "dom_text": dom_text or None,
                     "overlay_text": redact("\n".join(overlay_text), self.secrets) or None,
                     "text": redact(text[offset:offset+remaining_chars], self.secrets),
                     "offset": offset, "total_characters": len(text), "controls": entries})
@@ -220,10 +330,41 @@ class BrowserNavigator:
         observation = {"url": self.page.url, "frames": frames, "tabs": tabs,
                        "visited_pages": self.visited[-10:],
                        "http_status": self.statuses.get(self.page.url),
+                       "auto_dismissed": dismissed or None,
                        "downloads": [{"index": i, "name": d.suggested_filename} for i,d in enumerate(self.downloads)]}
         # Labels/URLs can contain account values too; redact the entire observation representation.
         import json
         return json.loads(redact(json.dumps(observation, ensure_ascii=False), self.secrets))
+
+    async def set_control(self, locator, control, value):
+        """Model-chosen value for checkboxes/radios/switches (true/false), selects (option label or value),
+        native sliders/number fields (number) and ARIA sliders (keyboard steps towards the number)."""
+        kind, role = (control.get("type") or "").lower(), control.get("role")
+        truthy = str(value).strip().lower() in ("true", "1", "yes", "ja", "on", "checked")
+        if kind in ("checkbox", "radio") or role in ("checkbox", "radio", "switch", "menuitemcheckbox"):
+            if kind in ("checkbox", "radio"):
+                await locator.set_checked(truthy, timeout=self.action_timeout)
+            elif bool(control.get("checked")) != truthy:
+                await locator.click(timeout=min(self.action_timeout, 4000))
+        elif control.get("tag") == "select":
+            try:
+                await locator.select_option(label=value, timeout=self.action_timeout)
+            except Exception:
+                await locator.select_option(value=value, timeout=self.action_timeout)
+        elif control.get("tag") in ("input", "textarea") and kind in ("range", "number", ""):
+            await locator.evaluate(SET_VALUE_SCRIPT, str(value))
+        elif role in ("slider", "spinbutton"):
+            target = float(str(value).replace(",", "."))
+            await locator.focus(timeout=self.action_timeout)
+            for _ in range(200):
+                now = await locator.get_attribute("aria-valuenow")
+                if now is None or abs(float(now) - target) < 1e-9:
+                    break
+                await locator.press("ArrowRight" if float(now) < target else "ArrowLeft")
+                if await locator.get_attribute("aria-valuenow") == now:
+                    break  # the control does not move further
+        else:
+            raise ValueError("set works on checkboxes, radios, switches, selects, sliders and number fields")
 
     async def reveal(self, target, limit=40):
         """Model-selected repetition: click every in-page control that has the same label as the chosen one
@@ -248,7 +389,7 @@ class BrowserNavigator:
             try:
                 await frame.locator(CONTROLS).nth(control["index"]).click(timeout=min(self.action_timeout, 3000))
             except Exception as error:
-                results.append(f"{control.get('row') or control['label']} => (not clickable: {type(error).__name__})")
+                results.append(f"{clean(control.get('row') or control['label'])} => (not clickable: {type(error).__name__})")
                 continue
             await asyncio.sleep(.25)
             if self.page.url != start_url:
@@ -261,7 +402,7 @@ class BrowserNavigator:
             after = lines(await frame.locator("body").inner_text(timeout=self.action_timeout))
             # Only text that was never on the page before (a closing neighbour is not "revealed").
             revealed = [line for line in after if line not in before and line not in baseline]
-            results.append(f"{control.get('row') or control['label']} => {' | '.join(revealed) or '(nothing new)'}")
+            results.append(f"{clean(control.get('row') or control['label'])} => {' | '.join(revealed) or '(nothing new)'}")
         text = redact("\n".join(results), self.secrets)
         return {"name": f"revealed by '{chosen['label']}' ({len(candidates)} controls)", "text": text}
 
@@ -379,6 +520,8 @@ class BrowserNavigator:
                 await locator.select_option(value=value, timeout=self.action_timeout)
             elif action.operation == "press":
                 await locator.press(value, timeout=self.action_timeout)
+            elif action.operation == "set":
+                await self.set_control(locator, control, value)
         await asyncio.sleep(.15)
         if self.page.url not in ("about:blank", "") and not self.allowed(self.page.url):
             raise ValueError("Navigation left assigned site")

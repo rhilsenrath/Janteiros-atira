@@ -20,12 +20,17 @@ def merge_progress(previous, incoming):
     if isinstance(incoming, list):
         def identity(value):
             if isinstance(value, Evidence): return (value.id, value.field, value.excerpt)
+            if getattr(value, "specification_id", None) and getattr(value, "revision", None) \
+                    and not getattr(value, "requirement_id", None):
+                return ("revision", value.specification_id, value.revision)
             # Specific ids first: one position can carry several changes/amendments.
             for name in ("change_id", "amendment_id", "identifier", "position_id", "requirement_id",
                          "material_id", "url", "key", "label"):
+                if name == "url" and getattr(value, "revision", None):
+                    continue  # revisions of one specification can share a viewer URL
                 key = getattr(value, name, None)
                 if key is not None:
-                    return (name, key, getattr(value, "effective_at", None))
+                    return (name, key, getattr(value, "effective_at", None), getattr(value, "revision", None))
             return repr(value)
         merged = {identity(value): value for value in previous}
         for value in incoming:

@@ -134,21 +134,54 @@ class TenderData(Provenanced):
     conflicts: list[str] = Field(default_factory=list)
 
 class TechnicalRequirement(Provenanced):
+    """Effective values (after scoped amendments and stroke derivation) in the main fields; the values as
+    stated in the governing revision are kept in original_values."""
     requirement_id: str
     revision: str | None = None
+    specification_id: str | None = None  # e.g. "LH-VG-2027-7093"
+    position_ids: list[str] = Field(default_factory=list)  # tender positions referencing this requirement
     catalogue_group: str | None = None
     bore: Decimal | None = None
-    stroke: Decimal | None = None
+    stroke: Decimal | None = None  # nominal stroke for ERP matching (derived when stroke_kind is usable travel)
     pressure: Decimal | None = None
     mounting: str | None = None
     certification: str | None = None
     pieces_per_set: Decimal | None = None
-    stroke_kind: str | None = None
+    stroke_kind: str | None = None  # "nominal" or "nutzbarer Weg" (usable travel), as stated
+    usable_travel: Decimal | None = None  # effective usable travel when stroke_kind is usable travel
+    stroke_reserve_per_end: Decimal | None = None  # from the revision-specific Technikfreigabe
+    units: dict[str, str] = Field(default_factory=dict)  # attribute -> unit as stated (mm, bar)
+    constraints: list[str] = Field(default_factory=list)  # further constraints relevant to matching
+    original_values: dict[str, str] = Field(default_factory=dict)  # as stated in the governing revision
+    applied_amendments: list[str] = Field(default_factory=list)  # "answer:attribute=value" applied
+    section: str | None = None  # page/section/table where the requirement was read
     attributes: dict[str, str] = Field(default_factory=dict)
+
+class SpecificationRevision(Provenanced):
+    specification_id: str
+    revision: str
+    title: str | None = None
+    status: str | None = None  # as displayed, e.g. "aktuell", "ersetzt", "Entwurf"
+    current: bool | None = None  # explicitly marked current/governing
+    dated_at: datetime | None = None
+    url: str | None = None
+
+class PositionConversion(Record):
+    position_id: str
+    requirement_id: str | None = None
+    unit: str | None = None
+    quantity: Decimal | None = None
+    pieces_per_set: Decimal | None = None
+    pieces: Decimal | None = None  # quantity in pieces for ERP/pricing (Satz x pieces per set)
 
 class TechnicalRequirements(Provenanced):
     kind: Literal["technical"] = "technical"
-    requirements: list[TechnicalRequirement] = Field(default_factory=list)
+    requirements: list[TechnicalRequirement] = Field(default_factory=list)  # effective, governing revision only
+    other_requirements: list[TechnicalRequirement] = Field(default_factory=list)  # other revisions, as read
+    governing_specification: str | None = None
+    governing_revision: str | None = None
+    revisions: list[SpecificationRevision] = Field(default_factory=list)
+    conversions: list[PositionConversion] = Field(default_factory=list)
     documents: list[DocumentReference] = Field(default_factory=list)
     conflicts: list[str] = Field(default_factory=list)
 
