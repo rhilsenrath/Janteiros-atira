@@ -6,6 +6,7 @@ Docs: $API/docs/building-an-agent.md, $API/docs/run-contract.md, and the rules: 
 """
 import asyncio
 import json
+import os
 import sys
 
 from playwright.async_api import async_playwright
@@ -13,10 +14,14 @@ from playwright.async_api import async_playwright
 import browsers
 import models  # noqa: F401  models.ask_qwen, models.ask_clef: see models.py
 import run as contract
+from core.config import RunConfig
+from core.orchestrator import Orchestrator
+from tools.browser_manager import BrowserManager, MockBrowserManager
+from tools.llm_client import LLMClient
 
 
 async def solve(task: dict, page) -> dict | None:
-    """TODO: your agent goes here.
+    """Delegate to the typed coordinator, preserving Atira's solve contract.
 
     `task` is the run: task["brief"] (the task and its rules), task["access"] (each website's url and login),
     task["submission"] (where the answer goes) and task["answer_schema"]. `page` is a Playwright page in browser 1.
@@ -28,7 +33,25 @@ async def solve(task: dict, page) -> dict | None:
     of the answer scores on its own, so stop and submit your best answer about a minute before the end; an answer
     that comes too late scores 0.
     """
-    return None
+    config = RunConfig.from_env()
+    if config.mode == "mock":
+        # Do not give synthetic workers any runtime credentials or live page.
+        manager = MockBrowserManager()
+        runtime = {"brief": "Synthetic integration exercise", "access": [],
+                   "answer_schema": {}, "submission": {"kind": "site"}}
+        await Orchestrator(runtime, manager, config).run()
+        return None
+    llm = LLMClient()
+    # Attach additional sessions within solve while retaining its two-argument API.
+    async with async_playwright() as playwright:
+        manager = BrowserManager(playwright, first_page=page)
+        try:
+            orchestrator = Orchestrator(task, manager, config, llm=llm)
+            answer = await orchestrator.run()
+            print("Agent statuses:", {k: v.value for k, v in orchestrator.state.statuses.items()}, flush=True)
+            return answer
+        finally:
+            await llm.close()
 
 
 async def main() -> int:
@@ -36,11 +59,22 @@ async def main() -> int:
     sites = ", ".join(f"{site.get('siteId')} {site.get('url')}" for site in task["access"])
     print(f"Run {task.get('run_id') or '(local: the scouting logins, nothing counts)'}; websites: {sites}; "
           f"answer via {task['submission']['kind']}", flush=True)
-    async with async_playwright() as playwright:
-        browser, page = await browsers.connect(playwright)  # more browsers: browsers.connect(playwright, 1), ...
-        answer = await solve(task, page)
+    if RunConfig.from_env().mode == "mock":
+        answer = await solve(task, None)
+        if answer is not None:
+            raise RuntimeError("Mock mode cannot return a platform answer")
+    else:
+        if os.environ.get("CHALLENGE_RUN_TOKEN") and not browsers.cdp_urls():
+            raise RuntimeError("Managed CDP endpoints missing; refusing standalone sandbox browser")
+        async with async_playwright() as playwright:
+            browser, page = await browsers.connect(playwright)
+            try:
+                answer = await solve(task, page)
+            finally:
+                if not browsers.cdp_urls() and hasattr(browser, "close"):
+                    await browser.close()
     if answer is None:
-        print("No answer to submit: build your agent in solve() in agent.py", flush=True)
+        print("No answer to submit: inspect agent statuses; website and business rules remain to implement", flush=True)
         return 0
     if not token:
         print("Your answer (locally nothing is submitted):", json.dumps(answer, ensure_ascii=False), flush=True)
