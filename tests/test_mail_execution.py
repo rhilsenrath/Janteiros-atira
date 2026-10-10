@@ -72,6 +72,66 @@ class MailboxModel:
 
 
 class MailExecutionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_passage_selection_copies_original_without_model_transcription(self):
+        from agents.mail import MailCitation
+        model=MailboxModel()
+        original=model.ask
+        async def ask(system,user,*,output_type):
+            result=await original(system,user,output_type=output_type)
+            if output_type is MailExtraction:
+                data=json.loads(user)
+                passage=next(p for p in data['citation_passages'] if 'Conditional discount 5 percent' in p['text'])
+                result.structured.rules[0].citations[:]=[MailCitation(passage_ids=[passage['passage_id']])]
+            return result
+        model.ask=ask
+        context,_,_=self.context(model)
+        with patch('agents.mail.MailNavigator',FakeMailbox):
+            result=await MailAgent().execute(AgentTask(tender=TenderData(reference='RFQ-1')),context)
+        self.assertEqual(len(result.output.rules),1)
+        self.assertEqual(result.output.rules[0].citations[0].excerpt,'Originalnachricht: Conditional discount 5 percent')
+
+    async def test_rejection_history_retains_both_failed_attempts(self):
+        from agents.mail import MailCitation
+        model=MailboxModel()
+        original=model.ask
+        async def ask(system,user,*,output_type):
+            result=await original(system,user,output_type=output_type)
+            if output_type is MailExtraction:
+                result.structured.rules[0].citations[:]=[MailCitation(passage_ids=['not-observed'])]
+            return result
+        model.ask=ask
+        context,_,artifacts=self.context(model)
+        with patch('agents.mail.MailNavigator',FakeMailbox):
+            result=await MailAgent().execute(AgentTask(tender=TenderData(reference='RFQ-1')),context)
+        self.assertFalse(result.output.rules)
+        history=artifacts['mail-extraction-rejections']
+        self.assertEqual([r['attempt'] for r in history],[1,2])
+        self.assertEqual([r['topic_id'] for r in history],['discount','discount'])
+        self.assertEqual(history[1]['citation_correction']['rejected_passage_ids'],['not-observed'])
+
+    async def test_controller_binds_valid_quote_without_trusting_model_source(self):
+        for supplied_source in ('', 'invented-source'):
+            with self.subTest(source=supplied_source):
+                model=MailboxModel()
+                original=model.ask
+                calls=[]
+                async def ask(system,user,*,output_type):
+                    result=await original(system,user,output_type=output_type)
+                    if output_type is MailExtraction:
+                        calls.append(json.loads(user))
+                        citation=result.structured.rules[0].citations[0]
+                        result.structured.rules[0].citations[0]=citation.model_copy(update={'source_id':supplied_source})
+                    return result
+                model.ask=ask
+                context,_,_=self.context(model)
+                with patch('agents.mail.MailNavigator',FakeMailbox):
+                    result=await MailAgent().execute(AgentTask(tender=TenderData(reference='RFQ-1')),context)
+                self.assertEqual(len(calls),1)
+                self.assertEqual(len(result.output.rules),1)
+                citation=result.output.rules[0].citations[0]
+                self.assertEqual(citation.source_id,calls[0]['sources'][0]['source_id'])
+                self.assertEqual(citation.excerpt,'Conditional discount 5 percent')
+
     async def test_wrong_topic_is_corrected_with_explicit_expected_identifier(self):
         model=MailboxModel()
         original=model.ask
@@ -349,9 +409,12 @@ class MailExecutionTests(unittest.IsolatedAsyncioTestCase):
                 if extractions==1:
                     rule=result.structured.rules[0]
                     from agents.website import SourceCitation
-                    rule=rule.model_copy(update={'citations':[SourceCitation(source_id='unselected',excerpt=rule.text)]})
+                    rule=rule.model_copy(update={'citations':[SourceCitation(source_id='unselected',excerpt='Invented discount 99 percent')]})
                     result.structured=result.structured.model_copy(update={'rules':[rule]})
-                else:self.assertIn('feedback',json.loads(user))
+                else:
+                    feedback=json.loads(user)['feedback']
+                    self.assertEqual(feedback['citation_correction']['rejected_excerpt'],'Invented discount 99 percent')
+                    self.assertIn('Conditional discount 5 percent',feedback['citation_correction']['available_text'][0]['text'])
             return result
         model.ask=ask
         context,pages,artifacts=self.context(model)
