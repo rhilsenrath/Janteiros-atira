@@ -52,7 +52,8 @@ class ExtractionModel:
 
 class WebsiteTests(unittest.IsolatedAsyncioTestCase):
     async def test_each_production_worker_authenticates_and_extracts_from_observed_sources(self):
-        for role,worker in [('tender',TenderAgent()),('supplier',SupplierAgent()),('erp',ErpAgent()),('mail',MailAgent())]:
+        # Mail has its own execution loop and is covered by test_mail_progress.
+        for role,worker in [('tender',TenderAgent()),('supplier',SupplierAgent()),('erp',ErpAgent())]:
             logs=[];reports=[];model=ExtractionModel(role)
             async def report(result):reports.append(result)
             context=AgentContext(RUNTIME,RunConfig(max_navigation_steps=2),page=object(),llm=model,
