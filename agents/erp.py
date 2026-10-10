@@ -1,9 +1,5 @@
-from agents.base import BaseAgent, AgentContext
-from core.contracts import AgentTask, AgentResult
+from agents.website import WebsiteAgent
 
-class ErpAgent(BaseAgent):
+class ErpAgent(WebsiteAgent):
     agent_id = "erp"
-    responsibility = "active materials and price conditions"
-
-    async def execute(self, task: AgentTask, context: AgentContext) -> AgentResult:
-        return self.blocked()
+    responsibility = 'Search model-selected catalogue groups from technical requirements; inspect all relevant active/material candidates, exact technical attributes, stock, lead times, price conditions/scales/currencies/validity and setup/mass/carton attributes.'

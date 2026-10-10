@@ -1,9 +1,5 @@
-from agents.base import BaseAgent, AgentContext
-from core.contracts import AgentTask, AgentResult
+from agents.website import WebsiteAgent
 
-class MailAgent(BaseAgent):
+class MailAgent(WebsiteAgent):
     agent_id = "mail"
-    responsibility = "authorized commercial evidence and signing TAN"
-
-    async def execute(self, task: AgentTask, context: AgentContext) -> AgentResult:
-        return self.blocked()
+    responsibility = 'Search the exact runtime tender reference plus topics across inbox/archive; verify authority, scenario date and supersession for discounts, FX, metal indices, clauses, packaging, delivery, shared setup and project bonus. Do not retrieve signing TAN.'

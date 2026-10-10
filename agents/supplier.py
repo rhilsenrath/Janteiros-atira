@@ -1,9 +1,5 @@
-from agents.base import BaseAgent, AgentContext
-from core.contracts import AgentTask, AgentResult
+from agents.website import WebsiteAgent
 
-class SupplierAgent(BaseAgent):
+class SupplierAgent(WebsiteAgent):
     agent_id = "supplier"
-    responsibility = "current technical specifications"
-
-    async def execute(self, task: AgentTask, context: AgentContext) -> AgentResult:
-        return self.blocked()
+    responsibility = 'Discover authoritative current applicable specification revisions and requirements; retain other revisions and conflicts.'

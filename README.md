@@ -1,176 +1,204 @@
-# Atira RFQ modular agent skeleton
+# Atira RFQ multi-agent website integration
 
-This project extends the official EHL starter kit with six logical agents: the Orchestrator and five workers.
-It establishes integration contracts and local test infrastructure. Website investigation, complete commercial
-pricing, business validation and signed submission are intentionally unfinished. Production exits with blocked
-statuses and no answer. A skeleton is not expected to score or pass review as a completed challenge solution.
+This project keeps the official Atira entry point and modular architecture while replacing production placeholders
+with model-directed authentication and investigation of the four runtime websites. Production gathers evidence
+from the active execution; it has no mock data, scenario fixtures or scripted website click paths.
 
-The integration follows the official [getting started guide](https://ehl-challenge.atira.ai/start),
-[RFQ rules and answer schema](https://ehl-challenge.atira.ai/challenges/rfq),
+Full commercial pricing, authority/business validation, signing-TAN retrieval and signed Tender submission remain
+incomplete. Successful investigation is not a successful commercial bid. With those features unfinished, the
+application exits without an answer and Atira will classify the run as **no answer** even when investigation works.
+
+The official [RFQ rules](https://ehl-challenge.atira.ai/challenges/rfq),
+[getting started](https://ehl-challenge.atira.ai/start),
 [run contract](https://ehl-challenge.atira.ai/docs/run-contract.md), and
-[manifest requirements](https://ehl-challenge.atira.ai/docs/submitting.md), read on 10 October 2026.
-The runtime brief and `answer_schema` remain authoritative; no scenario answers, URLs or credentials are built in.
+[agent requirements](https://ehl-challenge.atira.ai/docs/building-an-agent.md) were reviewed on 10 October 2026.
+The runtime brief and `answer_schema` are authoritative. The earlier skeleton was tested in Atira; **this real
+investigation implementation has not yet been tested against live Atira websites or the hosted model**.
 
-## Architecture
+## Execution and module boundaries
 
 ```mermaid
 flowchart TD
-    A[Atira agent.json] --> B[agent.main: load_run]
+    A[Atira manifest] --> B[agent.main: run.load_run]
     B --> C[solve: Orchestrator]
-    C --> D[Browser Manager: four isolated sessions]
+    C --> D[Browser Manager: four CDP sessions]
+    C --> R[Runtime Access Manager: model assigns roles]
     C --> T[Tender Agent]
     C --> S[Supplier Agent]
+    C --> E[ERP Agent]
     C --> M[Mail Agent]
-    S --> C
-    C --> E[ERP Agent: after specifications]
-    T --> C
-    M --> C
-    E --> C
+    T -->|partial tender reference| C
+    S -->|partial technical requirements| C
+    C -->|reference| M
+    C -->|requirements| E
+    E -->|candidate evidence| C
+    M -->|commercial evidence| C
     C --> P[Pricing and Decision Agent]
-    P --> R[Decimal pricing services]
-    P --> C
-    C --> V[Bid Validator]
-    V --> G[Submission guard]
-    G --> T
-    G --> F[API answer returned to main if applicable]
+    P -->|missing or conflicting evidence| C
+    P --> V[Incomplete Decimal pricing and validation]
+    V --> G[Explicitly enabled submission guard]
 ```
 
-All arrows between workers are routed through the Orchestrator. The first stage runs Tender, Supplier and Mail
-concurrently; ERP receives the resulting technical specifications, then Pricing receives all available outputs.
-A worker may return partial data or be blocked/failed. The coordinator preserves available typed output, records
-errors and missing questions, and routes a bounded number of targeted requests. No business decision is inferred
-from a worker's success status alone.
+`solve(task, page)` still accepts the original Atira run and browser-1 page. `run.py`, `browsers.py`, `models.py`,
+manifest setup/run commands, four-browser request and model proxy configuration remain intact. `main()` still owns
+API answer transport; real RFQ submissions will use the Tender website and return `None` after a confirmed receipt.
 
-`Planner.stages()` is the extension point for future scheduling; a model-driven planner can replace the current
-deterministic stages. Runtime navigation and important decisions must be model-directed once implemented.
-The coordinator owns state mutations on the event loop and gives each task a deep typed snapshot. Agent results
-have a discriminated output union, so JSON round trips retain their exact type. `on_event` receives progress events.
-
-## Modules and contracts
-
-| Path | Purpose |
+| Module | Purpose |
 | --- | --- |
-| `agent.py`, `agent.json` | Preserved entry point and manifest; `solve(task, page)` delegates to the Orchestrator |
-| `run.py`, `browsers.py`, `models.py` | Original platform adapters, unchanged |
-| `core/contracts.py` | Tasks, results, statuses, evidence, tender/specification/ERP/policy/bid models |
-| `core/config.py`, `core/state.py`, `core/events.py` | Configuration, in-memory state and progress event boundary |
-| `core/orchestrator.py` | Registration, concurrent/dependent stages, deadlines, retries and reinvestigation |
-| `agents/base.py`, `agents/{tender,supplier,erp,mail,pricing}.py` | Async worker interface and production placeholders |
-| `agents/mock.py` | Explicit synthetic workers using the same contracts |
-| `tools/browser_manager.py`, `tools/navigation.py` | Session ownership and runtime observation helper |
-| `tools/llm_client.py` | Injectable async model client, structured output, tool calls, usage and bounded retries |
-| `services/` | Matching/policy protocols, Decimal pricing boundary, validation and submission |
-| `prompts/` | Future worker prompt guidance; implementations must explicitly load these files |
-| `tests/` | New architecture tests and retained starter-kit tests |
+| `core/access.py` | Validate the four runtime access entries and dynamically assign business roles |
+| `core/orchestrator.py` | Concurrent execution, partial results, event-based dependencies, retries and deadlines |
+| `core/contracts.py`, `core/state.py`, `core/config.py`, `core/events.py` | Typed contracts, in-memory evidence/state and lifecycle configuration |
+| `agents/website.py` | Shared real authentication, investigation, citation verification and partial-result publication |
+| `agents/tender.py` | Tender/reference/position/Q&A/document objective |
+| `agents/supplier.py` | Applicable technical revision/specification objective |
+| `agents/erp.py` | Narrow model-directed candidate/material/price/stock objective |
+| `agents/mail.py` | Exact-reference authorized commercial message objective |
+| `agents/pricing.py` | Evidence readiness/conflict checks and targeted questions; incomplete pricing service |
+| `tools/navigation.py` | Observed-target browser actions and bounded DOM/frame/tab observations |
+| `tools/documents.py` | One selected PDF, DOCX, text/HTML/CSV/XML/JSON or ZIP member |
+| `tools/browser_manager.py`, `tools/llm_client.py`, `tools/logging.py` | Existing browser/model wrappers and allowlisted structured diagnostics |
+| `services/` | Preserved matching, policy, Decimal pricing, validation and submission boundaries |
+| `prompts/` | Worker objectives and authority/document-investigation guidance |
+| `tests/fakes.py` | Isolated fake resources; never imported by production modules |
+| `tests/` | Runtime parsing, browser allocation, navigation, auth/extraction, dependency and original-adapter tests |
 
-Every worker implements `BaseAgent.execute(AgentTask, AgentContext) -> AgentResult` and has a unique identifier.
-Context supplies the original runtime run, assigned page, injected model client and configuration. Tender submission
-is a distinct `submit` task; targeted follow-ups use `reinvestigate` with a question. Agents never call peers.
-`None` means unknown, while `Decimal("0")` represents a known zero. Provenance can name the source site, document,
-reference, revision, field, observation and applicable time. Tokens use `SecretStr`, are excluded from serialization,
-and must never be included in evidence excerpts or logs. Do not dump runtime contexts, which contain credentials.
+The former `agents/mock.py`, production mock selection, fake browser manager and offline mock demo were removed.
+`ATIRA_MODE=mock` and `ATIRA_MODE=test` are rejected by the real entry point. A directly injected `RunConfig(mode="test")`
+is only for unit-test workers; it creates no default fake agents and cannot submit.
 
-Run state retains tender/specification/ERP/commercial records, evidence, statuses, results, missing information,
-errors, pricing, validation and submission receipt. Revision authority, conflicts and per-position readiness must
-be implemented using these records; the skeleton does not pretend to resolve them.
+## Access, authentication and browser control
 
-## Browser and model integration
+`run.load_run()` continues to load either `/v1/runs/current` with the run token or `CHALLENGE_SCOUTING` locally.
+`AccessManager` parses the run's `access` first; if that field is absent it accepts the same JSON array from
+`CHALLENGE_SITE_ACCESS`. Each entry must supply `siteId`, an HTTP(S) URL and username/password credentials. Invalid
+or incomplete access fails safely. There are no default website URLs, credentials or CDP endpoints.
 
-The manifest requests exactly four browsers with `"browsers": 4`. The Browser Manager uses the original
-`browsers.connect` and discovered `CDP_URLS`/`CDP_URL`, assigning indices 0–3 to Tender, Supplier, ERP and Mail.
-It reuses the page supplied to `solve` for Tender. It rejects missing/duplicate sandbox endpoints, gives workers
-only their assigned page, and retains browser lifecycle ownership. Agents must not close pages' parent browsers
-or contexts. Local sessions are closed by their owners; sandbox Chromium is never closed by workers/manager:
-Playwright disconnects when its scope exits and Atira owns browser shutdown. No standalone browser is launched
-by the new integration when a run token is present without managed CDP endpoints.
+The shared model client assigns the supplied entries to Tender, Supplier, ERP and Mail using the runtime brief,
+entry IDs, URLs and descriptions. Assignments must uniquely use all four supplied entries; IDs and software may
+change in the private dataset. Browser indices remain business roles: 0 Tender, 1 Supplier, 2 ERP, 3 Mail.
 
-`LLMClient()` lazily wraps `models.qwen()` and defaults to the kit's `models.QWEN_MODEL`; agents share this client.
-`ask(system, user, output_type=SomePydanticModel, tools=...)` returns text, typed output, tool calls and usage.
-A caller can inject an existing async OpenAI-compatible SDK client and model name, preserving provider/proxy
-configuration from the runtime environment. Original `models.ask_qwen` and `models.ask_clef` remain usable.
-Native providers such as Clef retain their original adapter; no authentication is reimplemented. Only transient
-connection, timeout, 408/429 and 5xx failures are retried (default once, maximum three). Invalid structured output
-is surfaced; unsupported structured-output features should be handled explicitly by future agents. SDK retries
-are disabled for the owned client. For injected clients, configure SDK retries to zero yourself. The coordinator's
-timeout also bounds model calls; tune it for model latency and the remaining run time.
+The original CDP connector is reused. Environment shape and four distinct endpoint URLs are validated before
+connection. Browser ownership and cleanup stay centralized. In a token-bearing sandbox, missing CDP endpoints
+never cause a standalone browser launch. Local scouting can launch four independent browsers through the original
+connector. No worker closes a parent browser; Playwright disconnects and Atira owns managed Chromium shutdown.
 
-`RunConfig` defaults: production mode, 120 seconds per task/resource/submission, one worker retry, two
-reinvestigation rounds and a 60-second deadline reserve. Retry only results explicitly marked retryable; exceptions
-receive a generic error to avoid leaking runtime secrets. Cancellation propagates and resource cleanup runs.
-Tune these options through dependency injection. `ATIRA_MODE` accepts only `production` or `mock`; unknown values fail.
+All four workers open and authenticate their assigned sites concurrently. Authentication decisions use current
+UI observations, not fixed login selectors. The model requests username/password fills using named secret references;
+Python inserts the credentials into an observed field after checking site/form origin. Actual values are redacted
+from model input, source excerpts, labels and diagnostic output. Successful authentication requires model-confirmed
+visible application content and absence of a visible password login control; subsequent expired sessions reuse the
+same bounded login loop. This verification heuristic needs live testing on each website implementation.
 
-## Safe mock workflow and verification
+The navigation loop observes visible controls, bounded text, same-site frames, tabs and downloads. The model chooses
+one typed operation: inspect, click, fill, select, press, scroll, back, follow an observed URL, switch tab, read a
+selected document or finish. Actions cannot supply JavaScript or arbitrary selectors. Locators prefer uniquely
+observed semantic labels/roles, falling back to the current generic control index, and recheck element identity
+before executing. Only observed URLs and targets are accepted. Requests leaving the assigned site's origin are
+blocked, including cross-site form destinations. Actual cross-origin SSO/document hosts therefore require an explicit,
+reviewed runtime allowlist extension; the current implementation reports failure rather than leaking credentials.
 
-Install dependencies (Python 3.12+ and uv):
+A document helper reads only a URL/download chosen by the model. ZIP contents are listed first; the model selects
+a member. Downloads, archive entries, expanded sizes and PDF pages have limits. Document chunks can be revisited
+by offset without downloading again. Scanned PDFs requiring OCR, visual-only canvases and unsupported binary formats
+are not implemented; those sources must be reported incomplete. There is no automatic website traversal or catalogue
+crawler. Each model call receives bounded observations rather than entire HTML documents.
+
+## Evidence and incremental coordination
+
+Complete status also requires basic role-specific field coverage; missing required facts downgrade completion to partial.
+Workers can publish a typed partial extraction using an `inspect` action with selected observation source IDs.
+Extraction requires exact quoted excerpts from sources observed in this execution; invented IDs/quotations and
+synthetic flags are rejected. The application assigns website, URL, document, observation time and agent provenance.
+Records retain unknown values as `None`, including unknown discounts and stock. Known zeroes remain `Decimal("0")`.
+Repeated extraction includes previous results and sources so the model can consolidate rather than forget progress.
+Citations prove that a document/page was observed; business applicability and complete field correctness still need
+business validation and real-runtime evaluation. Model extraction must not be treated as deterministic proof.
+
+`AgentContext.report(result)` publishes through the coordinator, which alone mutates shared state on the event loop.
+`get_task(task)` supplies a deep typed snapshot. Mail waits for a verified tender reference and ERP waits for technical
+requirements; they can proceed as soon as those partial results arrive, before Tender/Supplier finish. Missing or
+finished unsuccessful dependencies unblock waits and produce explicit blocked investigations rather than guesses.
+Pricing receives the four genuine evidence-bearing outputs and requests missing/conflicting sources through the
+coordinator. Follow-up investigations reuse the same run's page and selected-document cache; no state persists across
+separate runs. Full position/material matching and authority/policy resolution remain developer work.
+
+Contracts now include document references, Q&A identifiers/withdrawals/scoped revision information, source URLs,
+conflict lists, original lead-time units, technical extra attributes and commercial reference/authority/date fields.
+Agent interfaces retain `execute(AgentTask, AgentContext) -> AgentResult`. Signing-token retrieval has a separate
+`retrieve_signing_token` task action, currently returning blocked without accessing TAN messages.
+
+Logs are JSON lines with event, logical agent, operation/status, counts, elapsed time and exception class.
+They cover browser readiness, runtime role resolution, authentication, navigation, extraction, dependencies and
+completion. Values, URLs, raw model responses, exception messages, credentials, cookies and TANs are not logged.
+Use event names such as `authentication_succeeded`, `evidence_extracted`, `tool_error`, `partial_result`,
+`agent_finished` and `run_error` to diagnose progress. Application-generated observation IDs are logged for correlation; quoted source/business values remain in shared state.
+
+Defaults: 300 seconds per worker/resource/submission, 12 authentication steps, 40 investigation actions, 10-second
+browser action timeout, 12,000 visible text characters per observation, one retry for explicit retryable failures,
+two follow-up rounds, and a 60-second deadline reserve. Worker timeouts respect remaining `expires_at` time.
+Configure limits by injecting `RunConfig`; bounded retries and cancellation preserve available partial evidence.
+
+`ATIRA_ENABLE_SUBMISSION=1` is the explicit future submission gate. Leave it unset for integration testing. Even if set,
+submission remains blocked by the unfinished pricing/business-validation/TAN/Tender implementations. No dummy bid
+or fabricated signing token is generated. `Decimal` and explicit HALF_UP helpers and the documented API answer mapping
+remain unchanged. Complete pricing rules must be implemented and validated before enabling actual submission.
+
+## Local verification and first real integration test
+
+Install Python 3.12+ and uv, then from this directory:
 
 ```sh
 uv sync --locked
 uv run --no-sync python -m unittest discover -s tests -v
-uv run --no-sync python -m core.orchestrator
 ```
 
-The last command is an offline wiring demonstration using synthetic empty records and fake session objects.
-It requires no browser, model keys, scouting credentials or network. It simulates a Tender submission receipt,
-never calls a real site/API, and records an invalid synthetic bid. It does not calculate any commercial answers.
-The original HTTP adapter tests (with fake CDP endpoints added to the entry-point fixture) use temporary localhost servers; they require permission to bind localhost,
-but no external account or live API. Architecture tests use fake browsers and injected model clients.
+Fake browser/model clients exercise the actual production agent classes and navigation contracts. The original
+HTTP adapter tests use localhost-only servers; no external model, website, credentials or challenge run is needed.
+Synthetic records exist only in those isolated tests. Tests cover input parsing, arbitrary runtime role assignments,
+secret redaction, login failure, action validation, observed targets, citation anchoring, partial/dependent execution,
+no production fallback, incomplete pricing, and disabled submission.
 
-`ATIRA_MODE=mock uv run --no-sync python agent.py` also exercises the preserved lifecycle if scouting/run metadata
-is already available. It still loads the run via `run.load_run`, then sanitizes the task and skips browser connection.
-For entirely offline use, prefer the module demo above. Production is the default, including sandbox runs. Mock
-agents are rejected in production; mock results/evidence are refused as genuine output. The submission guard
-only simulates with a mock tender and synthetic bid. `solve` returns `None` for every mock workflow.
-
-The pricing service returns an explicitly incomplete `BidResult`; material matching and policy resolution raise
-`NotImplementedError`. The validator checks structural shape, provenance, duplicate positions and arithmetic,
-and **always blocks real submission until challenge-wide business validation is implemented**. Replace that explicit
-incomplete check with tested validation of the actual rules; do not simply remove it to send a dummy bid.
-The submission interface requires valid genuine evidence and a signing token; the Tender implementation must return
-a confirmed receipt. Never automatically retry the signing action after an ambiguous response; first check whether
-a receipt exists. API answers are mapped to the documented schema (`material_number`, `lead_time_weeks`, EUR,
-optional breakdowns omitted if unknown) and returned to `main`, which retains `run.submit_answer`. Decimal is used
-for calculations with explicit HALF_UP; conversion to JSON numbers occurs only at the transport boundary.
-
-The pricing workstream must implement all runtime rules independently: final quantities and units, current revisions
-and scoped amendments, derived strokes, active-material matching, date/scale/price-unit/FX selection, authorized
-conditional discounts and clauses, metal-index windows, ordinary/shared setup and allocation, carton packaging,
-project bonus bands and cent allocation, shared stock and delivery commitments, final prices and totals.
-Rounded reporting breakdowns must never feed back into the final-price formula. No rules are approximated here.
-
-After local checks, run the real sandbox yourself from this directory:
+When you choose to spend sandbox resources, start the first real integration test manually:
 
 ```sh
-atira test-run .
-# Equivalent explicit challenge selection:
 atira test-run . --challenge rfq
+# The default challenge invocation also works:
+atira test-run .
 ```
 
-No real sandbox test was executed during scaffolding. Local checks do not establish sandbox compatibility or a
-challenge score. This skeleton will exit without an answer until the production implementations are completed.
+Use the returned run ID:
 
-## Three developer workstreams
+```sh
+atira logs RUN_ID --follow
+atira status RUN_ID --json
+```
 
-| Developer | Owned modules | Next implementation |
+Check setup completes, four browser sessions initialize, four unique runtime sites resolve, and each logical agent
+logs `authentication_succeeded`. Check `browser_action`, `evidence_extracted` and `partial_result` events prove
+model navigation/extraction reached the coordinator; inspect role statuses and missing/error events. Examine browser
+recordings to verify searches/documents correspond to the runtime objective and each worker owns a separate browser.
+Expect pricing/submission to remain incomplete and the final run to be classified **no answer**. That does not
+establish commercial correctness. If login/navigation or structured-output support fails, fix the observed issue
+rather than adding static scenario values or scripted click paths. No live test was run automatically in this phase.
+
+Unverified runtime assumptions: Qwen accepts the generated JSON-schema response format; role descriptions/brief
+contain enough information for mapping; the private sites expose inspectable DOM content on the assigned origin;
+authentication can be confirmed by visible application state; selected document text and navigation fit configured
+limits; model extraction identifies governing revisions and records correctly. Local fake tests do not establish these.
+
+## Development workstreams
+
+| Developer | Owned modules | Next tasks |
 | --- | --- | --- |
-| 1 | `core/orchestrator.py`, `agents/tender.py`, `services/submission.py`, `tools/browser_manager.py` | Model-directed tender/Q&A investigation, amended quantities, bid form and TAN signing/receipt; orchestration improvements |
-| 2 | `agents/supplier.py`, `agents/erp.py`, `tools/navigation.py` | Revision-aware technical extraction and selected-document/table handling; narrow ERP search, exact active attributes and conditions |
-| 3 | `agents/mail.py`, `agents/pricing.py`, pricing/matching/policy/validation services | Authorized date/reference policies, signing-token retrieval; deterministic pricing rules and decision/validation tests |
+| 1 | Orchestrator, Tender, submission and browser lifecycle | Validate real Tender investigation/Q&A coverage; improve readiness/deadline scheduling; implement bid form, receipt checking and explicitly enabled signing |
+| 2 | Supplier, ERP and material discovery | Validate current-revision/doc/table coverage; amended/derived requirements; exact active-material matching, selected candidate records and complete quantity-scale/stock attributes |
+| 3 | Mail, Pricing and deterministic services | Validate exact-reference/sender/date/supersession rules; complete commercial policies and Decimal pricing/business validation; add requested-only TAN retrieval |
 
-Shared ownership: coordinate changes to `core/contracts.py`, `agents/base.py`, configuration, model adapter,
-manifest and dependencies before changing a field or interface. Add optional fields with provenance rather than
-passing undocumented dictionaries. Keep worker-specific tests and prompts alongside each workstream.
+Coordinate changes to shared contracts, navigation, access, model wrapper, manifest and dependencies. Implement
+worker-specific domain policies/prompts and tests without duplicating authentication or browser/model plumbing.
+Do not replace `solve`, runtime loading, proxy credentials or result transport with another execution path.
 
-To replace a mock worker, implement the corresponding production class using `execute`, consume only its assigned
-page, and return the matching typed output (`TenderData`, `TechnicalRequirements`, `ERPData`, `CommercialPolicies`,
-`BidResult`). Use `partial`/`blocked` with `MissingInformation` for targeted questions. Register a replacement through
-`Orchestrator(..., agents={...})`, keeping all five unique worker IDs. Production defaults already instantiate the
-production classes. Test against injected fake resources before live scouting, then implement business validation
-and real Tender submission before enabling a complete run. Orchestrator is the sixth logical agent, not a second
-worker registration.
-
-## Original starter-kit development instructions
-
-The sections below retain the platform setup, scouting, model and environment reference.
+## Original starter-kit platform reference
 
 ## The hosted models in short
 

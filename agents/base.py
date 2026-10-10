@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Awaitable, Callable
 from core.config import RunConfig
 from core.contracts import AgentTask, AgentResult, AgentStatus, MissingInformation, CommercialPolicies
 
@@ -10,6 +10,10 @@ class AgentContext:
     config: RunConfig
     page: Any = None  # only the assigned page; browser lifecycle belongs to manager
     llm: Any = None
+    access_manager: Any = None
+    logger: Any = None
+    report: Callable[[AgentResult], Awaitable[None]] | None = None
+    get_task: Callable[[AgentTask], Awaitable[AgentTask]] | None = None
 
 @dataclass(frozen=True)
 class SubmissionContext:

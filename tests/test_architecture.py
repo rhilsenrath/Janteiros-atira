@@ -7,307 +7,223 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from agents.base import BaseAgent
+from agents.base import BaseAgent, AgentContext, SubmissionContext
 from agents.tender import TenderAgent
 from agents.supplier import SupplierAgent
 from agents.erp import ErpAgent
 from agents.mail import MailAgent
 from agents.pricing import PricingAgent
-from agents.mock import MockAgent
+from core.access import AccessManager, RoleAssignments
 from core.config import RunConfig
-from core.contracts import *
-from core.orchestrator import Orchestrator, SubmissionContext
-from tools.browser_manager import BrowserManager, MockBrowserManager
-from tools.llm_client import LLMClient
+from core.contracts import (AgentTask, AgentResult, AgentStatus, Evidence, TenderData, TenderPosition,
+    TechnicalRequirements, TechnicalRequirement, ERPData, MaterialCandidate, CommercialPolicies,
+    CommercialRule, BidResult, BidPosition, ValidationResult, is_synthetic)
+from core.orchestrator import Orchestrator
+from core.state import RunState
 from services.pricing_engine import round_money, PricingEngine, PricingInput
 from services.bid_validator import BidValidator
 from services.submission import GuardedSubmission, to_answer
+from tools.browser_manager import BrowserManager
+from tools.navigation import BrowserAction
+from tools.logging import RunLogger, redact
+from fakes import FakeAgent, FakeBrowserManager, ScriptedModel
 
-RUNTIME = {"brief": "Synthetic unit test", "access": [], "submission": {"kind": "site"}, "answer_schema": {}}
+RUNTIME={'brief':'Unit test only','access':[], 'submission':{'kind':'site'},'answer_schema':{}}
+
+def access_entries():
+    return [{'siteId':str(i),'url':f'https://site-{i}.invalid','description':str(i),
+             'credentials':{'username':f'user-{i}','password':f'password-{i}'}} for i in range(4)]
+
+def manager():
+    m=AccessManager({'access':access_entries()},env={})
+    m.assignments=RoleAssignments(tender='0',supplier='1',erp='2',mail='3')
+    return m
 
 class Contracts(unittest.TestCase):
-    def test_all_workers_implement_interface(self):
-        agents = [TenderAgent(), SupplierAgent(), ErpAgent(), MailAgent(), PricingAgent()]
-        self.assertEqual(len({a.agent_id for a in agents}), 5)
-        self.assertTrue(all(isinstance(a, BaseAgent) for a in agents))
+    def test_workers_share_interface_and_no_production_mock_module(self):
+        workers=[TenderAgent(), SupplierAgent(),ErpAgent(),MailAgent(),PricingAgent()]
+        self.assertTrue(all(isinstance(w,BaseAgent) and not w.is_mock for w in workers))
+        self.assertEqual(len({w.agent_id for w in workers}),5)
+        self.assertFalse(Path('agents/mock.py').exists())
 
-    def test_unknown_zero_and_provenance(self):
-        self.assertIsNone(MaterialCandidate(material_id="synthetic").stock)
-        record = MaterialCandidate(material_id="synthetic", stock=Decimal("0"), evidence=[
-            Evidence(id="test", agent_id="erp", source_site="synthetic", revision="test")])
-        self.assertEqual(MaterialCandidate.model_validate_json(record.model_dump_json()), record)
-        with self.assertRaises(ValueError):
-            AgentResult(agent_id="erp", status="invalid")
-        self.assertNotIn("secret", CommercialPolicies(signing_token="secret").model_dump_json())
+    def test_unknown_zero_and_discriminated_roundtrip(self):
+        for output in [TenderData(),TechnicalRequirements(),ERPData(),CommercialPolicies(),BidResult()]:
+            result=AgentResult(agent_id='test',status=AgentStatus.partial,output=output)
+            restored=AgentResult.model_validate_json(result.model_dump_json())
+            self.assertIs(type(restored.output),type(output))
+        self.assertIsNone(MaterialCandidate(material_id='test').stock)
+        self.assertEqual(MaterialCandidate(material_id='test',stock='0').stock,Decimal('0'))
+        self.assertNotIn('sensitive-token',CommercialPolicies(signing_token='sensitive-token').model_dump_json())
 
-    def test_decimal_half_up(self):
-        self.assertEqual(round_money(Decimal("1.005")), Decimal("1.01"))
-        self.assertEqual(round_money(Decimal("-1.005")), Decimal("-1.01"))
-        for invalid in [1.005, Decimal("NaN")]:
-            with self.assertRaises(ValueError): round_money(invalid)
+    def test_decimal_half_up_and_incomplete_pricing(self):
+        self.assertEqual(round_money(Decimal('1.005')),Decimal('1.01'))
+        self.assertEqual(round_money(Decimal('-1.005')),Decimal('-1.01'))
+        with self.assertRaises(ValueError): round_money(1.005)
+        bid=PricingEngine().calculate(PricingInput(tender=TenderData(),technical=TechnicalRequirements(),
+            erp=ERPData(),commercial=CommercialPolicies()))
+        self.assertFalse(bid.complete); self.assertIsNone(bid.total_net)
+        self.assertFalse(BidValidator().validate(bid,{}).valid)
 
-    def test_unimplemented_pricing_is_incomplete(self):
-        bid = PricingEngine().calculate(PricingInput(tender=TenderData(), technical=TechnicalRequirements(),
-            erp=ERPData(), commercial=CommercialPolicies()))
-        self.assertFalse(bid.complete)
-        self.assertIsNone(bid.total_net)
-        self.assertFalse(BidValidator().validate(bid, {}).valid)
-        with self.assertRaises(ValueError): to_answer(bid)
+    def test_manifest_preserves_lifecycle(self):
+        manifest=json.loads(Path('agent.json').read_text())
+        self.assertEqual(manifest['run'],['uv','run','--no-sync','python','agent.py'])
+        self.assertEqual(manifest['setup'],['uv','sync']); self.assertEqual(manifest['browsers'],4)
 
-    def test_answer_mapping_preserves_zero_and_omits_unknown_breakdowns(self):
-        bid = BidResult(complete=True, decision="bid", tender_reference="synthetic",
-            discount_percent=Decimal("0"), total_net=Decimal("2"), positions=[
-            BidPosition(position="test", material_number="synthetic", quantity=Decimal("1"),
-                unit_price=Decimal("2"), lead_time_weeks=0, surcharge_per_unit=Decimal("0"))])
-        answer = to_answer(bid)
-        self.assertEqual(answer['positions'][0]['surcharge_per_unit'], 0)
-        self.assertNotIn('base_unit_price', answer['positions'][0])
-        self.assertEqual(answer['positions'][0]['material_number'], 'synthetic')
+    def test_mock_mode_not_available_from_environment(self):
+        for mode in ('mock','test','invalid'):
+            with patch.dict(os.environ,{'ATIRA_MODE':mode}):
+                with self.assertRaises(ValueError): RunConfig.from_env()
 
-    def test_manifest_and_dependencies(self):
-        manifest = json.loads(Path('agent.json').read_text())
-        self.assertEqual(manifest['browsers'], 4)
-        self.assertEqual(manifest['run'], ['uv','run','--no-sync','python','agent.py'])
-        self.assertTrue(Path(manifest['run'][-1]).is_file())
-        self.assertEqual(manifest['setup'], ['uv','sync'])
+    def test_action_schema_rejects_unsafe_operations(self):
+        for payload in [{'operation':'evaluate','value':'alert(1)'}, {'operation':'click'},
+                        {'operation':'press','target':'f0:e0','value':'Control+A'},
+                        {'operation':'fill','target':'f0:e0','secret':'password','value':'unsafe'}]:
+            with self.assertRaises(ValueError): BrowserAction.model_validate(payload)
+        self.assertEqual(BrowserAction(operation='fill',target='f0:e0',secret='password').secret,'password')
+
+    def test_log_redaction_and_allowlisted_metadata(self):
+        lines=[]; logger=RunLogger(lines.append)
+        logger.emit('browser_error',agent='erp',error_type='TimeoutError')
+        self.assertEqual(json.loads(lines[0])['agent'],'erp')
+        self.assertEqual(redact('user-x password-x',['user-x','password-x']),'[REDACTED] [REDACTED]')
+        with self.assertRaises(TypeError): logger.emit('unsafe',password='secret')
+
+class AccessTests(unittest.IsolatedAsyncioTestCase):
+    async def test_dynamic_role_assignment_and_hidden_credentials(self):
+        m=AccessManager({'access':access_entries()},env={})
+        model=ScriptedModel([{'tender':'3','supplier':'2','erp':'1','mail':'0'}])
+        await m.resolve(model,'Roles described at runtime')
+        self.assertEqual(m.for_role('tender').site_id,'3')
+        self.assertNotIn('password-',model.requests[0][1]); self.assertNotIn('user-',model.requests[0][1])
+        self.assertNotIn('password-',repr(m.for_role('mail')))
+
+    def test_runtime_env_fallback_and_invalid_formats(self):
+        self.assertEqual(len(AccessManager({},env={'CHALLENGE_SITE_ACCESS':json.dumps(access_entries())}).sites),4)
+        for raw in ('not-json','{}','[]'):
+            with self.assertRaises(ValueError): AccessManager({},env={'CHALLENGE_SITE_ACCESS':raw})
+        entries=access_entries(); entries[0]['url']='https://u:p@site.invalid'
+        with self.assertRaisesRegex(ValueError,'redacted'): AccessManager({'access':entries},env={})
+
+    async def test_role_assignments_must_be_unique_and_runtime_known(self):
+        m=manager(); model=ScriptedModel([{'tender':'0','supplier':'0','erp':'2','mail':'3'}])
+        with self.assertRaises(ValueError): await m.resolve(model,'test')
 
 class Workflow(unittest.IsolatedAsyncioTestCase):
-    async def test_concurrent_stages_and_dependency_snapshots(self):
-        started = set()
-        barrier = asyncio.Event()
-        captured = {}
-        class Worker(MockAgent):
-            async def execute(self, task, context):
-                captured[self.agent_id] = task
-                if self.agent_id in ('tender','supplier','mail') and task.action == 'investigate':
+    async def test_injected_test_workers_concurrent_and_dependent(self):
+        started=set(); barrier=asyncio.Event(); inputs={}
+        class Worker(FakeAgent):
+            async def execute(self,task,context):
+                inputs[self.agent_id]=task
+                if self.agent_id in ('tender','supplier','mail'):
                     started.add(self.agent_id)
-                    if len(started) == 3: barrier.set()
-                    await asyncio.wait_for(barrier.wait(), 1)
-                return await super().execute(task, context)
-        workers = {k: Worker(k) for k in ('tender','supplier','mail','erp','pricing')}
-        o = Orchestrator(RUNTIME, MockBrowserManager(), RunConfig(mode='mock'), agents=workers)
-        self.assertIsNone(await o.run())
-        self.assertIsNotNone(captured['erp'].technical)
-        self.assertIsNotNone(captured['pricing'].erp)
-        self.assertEqual(len(o.state.results), 5)
-        self.assertTrue(o.state.bid.mock)
+                    if len(started)==3: barrier.set()
+                    await asyncio.wait_for(barrier.wait(),1)
+                return await super().execute(task,context)
+        workers={k:Worker(k) for k in ('tender','supplier','erp','mail','pricing')}
+        o=Orchestrator(RUNTIME,FakeBrowserManager(),RunConfig(mode='test'),agents=workers,logger=RunLogger(lambda _:None))
+        self.assertIsNone(await o.run()); self.assertIsNotNone(inputs['erp'].technical)
+        self.assertIsNotNone(inputs['pricing'].commercial)
         self.assertFalse(o.state.validation.valid)
-        for result in o.state.results:
-            restored = AgentResult.model_validate_json(result.model_dump_json())
-            self.assertIs(type(restored.output), type(result.output))
 
-    async def test_partial_failure_and_retries(self):
-        class Partial(MockAgent):
-            async def execute(self, task, context):
-                return AgentResult(agent_id=self.agent_id, status=AgentStatus.partial,
-                    output=TechnicalRequirements(), mock=True)
-        class Failure(MockAgent):
-            calls = 0
-            async def execute(self, task, context):
-                self.calls += 1
-                return AgentResult(agent_id=self.agent_id, status=AgentStatus.failed,
-                    error="Synthetic failure", retryable=True)
-        workers = {k: MockAgent(k) for k in ('tender','supplier','mail','erp','pricing')}
-        workers['supplier'] = Partial('supplier')
-        workers['mail'] = Failure('mail')
-        o = Orchestrator(RUNTIME, MockBrowserManager(), RunConfig(mode='mock', retries=1), agents=workers)
-        await o.run()
-        self.assertEqual(o.state.statuses['supplier'], AgentStatus.partial)
-        self.assertEqual(o.state.statuses['mail'], AgentStatus.failed)
-        self.assertEqual(workers['mail'].calls, 2)
-        self.assertIsNone(o.state.bid)
-        self.assertTrue(o.state.errors)
-
-    async def test_production_is_blocked_and_rejects_mock_agents(self):
-        o = Orchestrator(RUNTIME, MockBrowserManager())
-        self.assertIsNone(await o.run())
-        self.assertEqual(o.state.statuses['tender'], AgentStatus.blocked)
+    async def test_production_rejects_synthetic_workers(self):
         with self.assertRaises(ValueError):
-            Orchestrator(RUNTIME, MockBrowserManager(), agents={k: MockAgent(k) for k in o.agents})
+            Orchestrator(RUNTIME,FakeBrowserManager(),agents={k:FakeAgent(k) for k in ('tender','supplier','erp','mail','pricing')})
 
-    async def test_cancellation_and_timeout_cleanup(self):
-        class Slow(MockAgent):
-            async def execute(self, task, context): await asyncio.Event().wait()
-        manager = MockBrowserManager()
-        manager.close = AsyncMock()
-        workers = {k: Slow(k) for k in ('tender','supplier','mail','erp','pricing')}
-        o = Orchestrator(RUNTIME, manager, RunConfig(mode='mock', task_timeout=.01, retries=0), agents=workers)
-        await o.run()
-        self.assertEqual(o.state.statuses['tender'], AgentStatus.failed)
-        manager.close.assert_awaited_once()
-        manager.close.reset_mock()
-        o = Orchestrator(RUNTIME, manager, RunConfig(mode='mock'), agents=workers)
-        running = asyncio.create_task(o.run())
-        await asyncio.sleep(.01)
-        running.cancel()
-        with self.assertRaises(asyncio.CancelledError): await running
-        manager.close.assert_awaited_once()
-        self.assertEqual(o.state.statuses['tender'], AgentStatus.cancelled)
+    async def test_partial_runtime_evidence_unblocks_dependency_before_worker_finishes(self):
+        observed=asyncio.Event(); supplier_finish=asyncio.Event()
+        class Worker(BaseAgent):
+            responsibility='test';
+            def __init__(self,role):self.agent_id=role
+            async def execute(self,task,context):
+                e=Evidence(id=self.agent_id,agent_id=self.agent_id,source_site='local-test')
+                if self.agent_id=='tender': output=TenderData(reference='test',evidence=[e])
+                elif self.agent_id=='supplier':
+                    output=TechnicalRequirements(requirements=[TechnicalRequirement(requirement_id='test')],evidence=[e])
+                    await context.report(AgentResult(agent_id='supplier',status=AgentStatus.partial,output=output))
+                    await asyncio.wait_for(supplier_finish.wait(),1)
+                elif self.agent_id=='erp':
+                    task=await context.get_task(task)
+                    self.assertion=bool(task.technical.requirements)
+                    observed.set(); supplier_finish.set(); output=ERPData(evidence=[e])
+                else:
+                    task=await context.get_task(task); output=CommercialPolicies(evidence=[e])
+                return AgentResult(agent_id=self.agent_id,status=AgentStatus.partial,output=output)
+        workers={k:Worker(k) for k in ('tender','supplier','erp','mail')}; workers['pricing']=PricingAgent()
+        o=Orchestrator(RUNTIME,FakeBrowserManager(),RunConfig(max_reinvestigations=0),agents=workers,
+            access_manager=manager(),logger=RunLogger(lambda _:None))
+        await o.run(); self.assertTrue(observed.is_set()); self.assertTrue(workers['erp'].assertion)
+        self.assertFalse(any(is_synthetic(r) for r in o.state.results))
 
-    async def test_expired_run_never_executes(self):
-        o = Orchestrator({**RUNTIME, 'expires_at': 1}, MockBrowserManager(), RunConfig(mode='mock'))
-        await o.run()
-        self.assertTrue(all(s == AgentStatus.blocked for s in o.state.statuses.values()))
+    async def test_deadline_cancellation_and_retry_policy(self):
+        class Slow(FakeAgent):
+            async def execute(self,task,context): await asyncio.Event().wait()
+        workers={k:Slow(k) for k in ('tender','supplier','erp','mail','pricing')}
+        browser=FakeBrowserManager(); browser.close=AsyncMock()
+        o=Orchestrator(RUNTIME,browser,RunConfig(mode='test',task_timeout=.01,retries=0),agents=workers,
+            logger=RunLogger(lambda _:None))
+        await o.run(); self.assertEqual(o.state.statuses['tender'],AgentStatus.failed)
+        browser.close.assert_awaited_once()
+        o=Orchestrator({**RUNTIME,'expires_at':1},browser,RunConfig(mode='test'),agents=workers)
+        await o.run(); self.assertTrue(all(s==AgentStatus.blocked for s in o.state.statuses.values()))
 
-    async def test_solve_contract_without_live_resources(self):
-        import agent
-        with patch.dict(os.environ, {'ATIRA_MODE': 'mock'}), patch('run.submit_answer') as submit:
-            self.assertIsNone(await agent.solve(RUNTIME, object()))
-            submit.assert_not_called()
-
-    async def test_mock_submission_is_simulated(self):
-        worker = MockAgent('tender')
-        worker.execute = AsyncMock(wraps=worker.execute)
-        context = SubmissionContext(RUNTIME, RunConfig(mode='mock'), None, None)
-        with patch('run.submit_answer') as post:
-            self.assertIsNone(await GuardedSubmission().prepare(BidResult(mock=True),
-                ValidationResult(valid=False), context, worker))
-            worker.execute.assert_awaited_once()
-            post.assert_not_called()
-        with self.assertRaises(ValueError):
-            await GuardedSubmission().prepare(BidResult(mock=True), ValidationResult(valid=True),
-                SubmissionContext(RUNTIME, RunConfig(), None, None), TenderAgent())
+    async def test_real_pricing_requests_missing_and_conflicting_evidence(self):
+        result=await PricingAgent().execute(AgentTask(tender=TenderData(conflicts=['test ambiguity'])),AgentContext(RUNTIME,RunConfig()))
+        self.assertEqual(result.status,AgentStatus.blocked); self.assertTrue(result.missing)
+        result=await PricingAgent().execute(AgentTask(tender=TenderData(evidence=[
+            Evidence(id='test',agent_id='tender',source_site='fixture',mock=True)])),AgentContext(RUNTIME,RunConfig()))
+        self.assertIn('Synthetic',result.error)
 
 class BrowserTests(unittest.IsolatedAsyncioTestCase):
-    async def test_four_isolated_sessions_and_no_remote_close(self):
-        remote = [SimpleNamespace(close=AsyncMock()) for _ in range(4)]
-        pages = [object() for _ in range(4)]
-        connector = AsyncMock(side_effect=list(zip(remote, pages)))
-        manager = BrowserManager(connector=connector, endpoints=['a','b','c','d'], sandbox=True)
-        await manager.initialize()
-        self.assertEqual([manager.page_for(k) for k in ('tender','supplier','erp','mail')], pages)
-        await manager.initialize()
-        self.assertEqual(connector.await_count, 4)
-        await manager.close()
-        self.assertTrue(all(b.close.await_count == 0 for b in remote))
+    async def test_four_sessions_and_remote_cleanup_ownership(self):
+        browsers=[SimpleNamespace(close=AsyncMock()) for _ in range(4)]; pages=[object() for _ in range(4)]
+        connector=AsyncMock(side_effect=list(zip(browsers,pages)))
+        m=BrowserManager(connector=connector,endpoints=['a','b','c','d'],sandbox=True)
+        await m.initialize();await m.initialize();self.assertEqual(connector.await_count,4)
+        self.assertEqual([m.page_for(k) for k in ('tender','supplier','erp','mail')],pages)
+        await m.close();self.assertTrue(all(b.close.await_count==0 for b in browsers))
 
-    async def test_missing_or_duplicate_endpoints_refuse_launch(self):
-        for endpoints in [[], ['a'], ['a','a','c','d']]:
-            connector = AsyncMock()
-            manager = BrowserManager(connector=connector, endpoints=endpoints, sandbox=True)
-            with self.assertRaises(RuntimeError): await manager.initialize()
+    async def test_missing_duplicate_endpoints_never_launch_standalone(self):
+        for endpoints in ([],['a'],['a','a','c','d']):
+            connector=AsyncMock();m=BrowserManager(connector=connector,endpoints=endpoints,sandbox=True)
+            with self.assertRaises(RuntimeError):await m.initialize()
             connector.assert_not_called()
 
-    async def test_local_partial_connection_is_cleaned_up(self):
-        browser = SimpleNamespace(close=AsyncMock())
-        manager = BrowserManager(connector=AsyncMock(side_effect=[(browser, object()), RuntimeError()]),
-            endpoints=[], sandbox=False)
-        with self.assertRaises(RuntimeError): await manager.initialize()
+    async def test_connection_failure_closes_owned_local_browser(self):
+        browser=SimpleNamespace(close=AsyncMock())
+        m=BrowserManager(connector=AsyncMock(side_effect=[(browser,object()),RuntimeError()]),endpoints=[],sandbox=False)
+        with self.assertRaises(RuntimeError):await m.initialize()
         browser.close.assert_awaited_once()
 
-class ModelTests(unittest.IsolatedAsyncioTestCase):
-    async def test_structured_reply_and_injected_provider(self):
-        reply = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
-            content='{"reference":"synthetic"}', tool_calls=[]))], usage=None)
-        client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=AsyncMock(return_value=reply))))
-        response = await LLMClient(client, model='injected').ask('system', 'user', output_type=TenderData)
-        self.assertEqual(response.structured.reference, 'synthetic')
-        self.assertEqual(client.chat.completions.create.call_args.kwargs['model'], 'injected')
+class SubmissionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_submission_requires_explicit_enable_and_synthetic_always_refused(self):
+        service=GuardedSubmission(); context=SubmissionContext(RUNTIME,RunConfig(),None,None)
+        with self.assertRaisesRegex(ValueError,'enabled'):
+            await service.prepare(BidResult(complete=True),ValidationResult(valid=True),context,TenderAgent())
+        context=SubmissionContext(RUNTIME,RunConfig(enable_submission=True),None,None)
+        with self.assertRaises(ValueError):await service.prepare(BidResult(mock=True),ValidationResult(valid=True),context,TenderAgent())
 
-class AdditionalLifecycleTests(unittest.IsolatedAsyncioTestCase):
-    async def test_targeted_reinvestigation_is_bounded_and_routed(self):
-        class Asking(MockAgent):
-            calls = 0
-            async def execute(self, task, context):
-                self.calls += 1
-                if self.calls == 1:
-                    return AgentResult(agent_id='pricing', status=AgentStatus.partial, mock=True,
-                        missing=[MissingInformation(agent_id='mail', question='synthetic missing approval')])
-                return await super().execute(task, context)
-        class Mail(MockAgent):
-            actions = []
-            async def execute(self, task, context):
-                self.actions.append((task.action, task.question))
-                return await super().execute(task, context)
-        workers = {k: MockAgent(k) for k in ('tender','supplier','mail','erp','pricing')}
-        workers['pricing'] = Asking('pricing')
-        workers['mail'] = Mail('mail')
-        o = Orchestrator(RUNTIME, MockBrowserManager(), RunConfig(mode='mock'), agents=workers)
-        await o.run()
-        self.assertIn(('reinvestigate', 'synthetic missing approval'), workers['mail'].actions)
-        self.assertEqual(workers['pricing'].calls, 2)
-        self.assertTrue(o.state.submission_receipt.simulated)
-        self.assertFalse(o.state.submission_receipt.confirmed)
-
-    async def test_wrong_worker_output_is_rejected(self):
-        class Wrong(MockAgent):
-            async def execute(self, task, context):
-                return AgentResult(agent_id='mail', status=AgentStatus.complete, output=TenderData(), mock=True)
-        workers = {k: MockAgent(k) for k in ('tender','supplier','mail','erp','pricing')}
-        workers['mail'] = Wrong('mail')
-        o = Orchestrator(RUNTIME, MockBrowserManager(), RunConfig(mode='mock'), agents=workers)
-        await o.run()
-        self.assertEqual(o.state.statuses['mail'], AgentStatus.failed)
-        self.assertIsNone(o.state.commercial)
-
-    async def test_entry_point_mock_never_connects_or_posts(self):
+    async def test_original_solve_signature_delegates_real_coordinator(self):
         import agent
-        with patch.dict(os.environ, {'ATIRA_MODE':'mock','CHALLENGE_SCOUTING':json.dumps(RUNTIME)}, clear=True), \
-             patch('browsers.connect', new_callable=AsyncMock) as connect, patch('run.submit_answer') as post:
-            self.assertEqual(await agent.main(), 0)
-            connect.assert_not_called()
-            post.assert_not_called()
-
-    async def test_model_transient_retries_are_bounded(self):
-        from openai import APIConnectionError
-        from httpx import Request
-        call = AsyncMock(side_effect=APIConnectionError(request=Request('POST','https://synthetic.invalid')))
-        client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=call)))
-        with self.assertRaises(APIConnectionError):
-            await LLMClient(client, retries=1).ask('system', 'user')
-        self.assertEqual(call.await_count, 2)
-
-    async def test_production_solve_delegates_with_original_page(self):
-        import agent
-        with patch.dict(os.environ, {'ATIRA_MODE':'production'}), \
-             patch('agent.BrowserManager', return_value=MockBrowserManager()) as manager, \
-             patch('agent.Orchestrator') as coordinator:
-            instance = coordinator.return_value
-            instance.run = AsyncMock(return_value=None)
-            instance.state.statuses = {'tender': AgentStatus.blocked}
-            page = object()
-            self.assertIsNone(await agent.solve(RUNTIME, page))
-            self.assertIs(manager.call_args.kwargs['first_page'], page)
-            self.assertIs(coordinator.call_args.args[0], RUNTIME)
+        with patch.dict(os.environ,{'ATIRA_MODE':'production'}),patch('agent.BrowserManager',return_value=FakeBrowserManager()) as browser,patch('agent.Orchestrator') as coordinator:
+            instance=coordinator.return_value;instance.run=AsyncMock(return_value=None);instance.state.statuses={}
+            page=object();self.assertIsNone(await agent.solve(RUNTIME,page))
+            self.assertIs(browser.call_args.kwargs['first_page'],page)
             instance.run.assert_awaited_once()
 
-class SubmissionBoundaryTests(unittest.IsolatedAsyncioTestCase):
-    async def test_mock_entrypoint_rejects_an_accidental_answer(self):
-        import agent
-        with patch.dict(os.environ, {'ATIRA_MODE':'mock'}, clear=True), \
-             patch('run.load_run', return_value=(RUNTIME, 'synthetic-token')), \
-             patch('agent.solve', new_callable=AsyncMock, return_value={'synthetic':True}), \
-             patch('run.submit_answer') as post:
-            with self.assertRaises(RuntimeError): await agent.main()
-            post.assert_not_called()
+class ProgressAndEnvironmentTests(unittest.TestCase):
+    def test_partial_state_merges_fields_and_deduplicates_evidence(self):
+        evidence=Evidence(id='unit-source',agent_id='tender',source_site='fixture')
+        state=RunState({},RunConfig())
+        state.collect(AgentResult(agent_id='tender',status=AgentStatus.partial,
+            output=TenderData(reference='test',positions=[TenderPosition(position_id='one',quantity='2')],evidence=[evidence]),evidence=[evidence]))
+        state.collect(AgentResult(agent_id='tender',status=AgentStatus.partial,
+            output=TenderData(positions=[TenderPosition(position_id='one',unit='Stück')],evidence=[evidence]),evidence=[evidence]))
+        self.assertEqual(state.tender.reference,'test')
+        self.assertEqual(state.tender.positions[0].quantity,Decimal('2'))
+        self.assertEqual(state.tender.positions[0].unit,'Stück');self.assertEqual(len(state.evidence),1)
 
-    async def test_nested_synthetic_evidence_cannot_be_mapped(self):
-        bid = BidResult(complete=True, decision='bid', tender_reference='synthetic',
-            discount_percent=Decimal('0'), total_net=Decimal('0'), positions=[
-            BidPosition(position='test', material_number='synthetic', quantity=Decimal('1'),
-                unit_price=Decimal('0'), lead_time_weeks=0, evidence=[
-                Evidence(id='test', agent_id='erp', source_site='synthetic', mock=True)])])
-        with self.assertRaises(ValueError): to_answer(bid)
-        self.assertFalse(BidValidator().validate(bid, {}).valid)
-
-    async def test_site_submission_requires_genuine_confirmed_receipt(self):
-        class PretendTender(TenderAgent):
-            async def execute(self, task, context):
-                return AgentResult(agent_id='tender', status=AgentStatus.complete,
-                    output=SubmissionReceipt(confirmed=True, simulated=True))
-        context = SubmissionContext(RUNTIME, RunConfig(), CommercialPolicies(signing_token='synthetic'), None)
-        with self.assertRaises(ValueError):
-            await GuardedSubmission().prepare(BidResult(complete=True), ValidationResult(valid=True),
-                context, PretendTender())
-
-    async def test_missing_inputs_block_dependent_pricing(self):
-        class NoMail(MockAgent):
-            async def execute(self, task, context):
-                return AgentResult(agent_id='mail', status=AgentStatus.blocked)
-        workers = {k: MockAgent(k) for k in ('tender','supplier','mail','erp','pricing')}
-        workers['mail'] = NoMail('mail')
-        workers['pricing'].execute = AsyncMock()
-        o = Orchestrator(RUNTIME, MockBrowserManager(), RunConfig(mode='mock'), agents=workers)
-        await o.run()
-        self.assertEqual(o.state.statuses['pricing'], AgentStatus.blocked)
-        workers['pricing'].execute.assert_not_called()
+    def test_managed_endpoint_schema_rejects_objects_and_missing_sessions(self):
+        for env in ({'CDP_URLS':'{"a":"x"}'}, {'CHALLENGE_RUN_TOKEN':'test'},
+                    {'CDP_URLS':'["invalid"]'}, {'CDP_URLS':'[]','CHALLENGE_RUN_TOKEN':'test'}):
+            with self.assertRaises(RuntimeError):BrowserManager.validate_environment(env)
+        self.assertEqual(BrowserManager.validate_environment({}),[])

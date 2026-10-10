@@ -34,14 +34,8 @@ class SubmissionService(Protocol):
 class GuardedSubmission:
     async def prepare(self, bid: BidResult, validation: ValidationResult,
                       context: SubmissionContext, tender_agent: BaseAgent):
-        if context.config.mode == "mock":
-            if not bid.mock or not tender_agent.is_mock:
-                raise ValueError("Mock simulation requires synthetic bid and mock tender")
-            result = await tender_agent.execute(AgentTask(action="submit", bid=bid), context.agent_context or context)
-            if not isinstance(result.output, SubmissionReceipt) or not result.output.simulated:
-                raise ValueError("Mock tender did not return a simulated receipt")
-            self.receipt = result.output
-            return None
+        if context.config.mode != "production" or not context.config.enable_submission:
+            raise ValueError("Real submission must be explicitly enabled for this run")
         if is_synthetic(bid) or is_synthetic(context.commercial) or tender_agent.is_mock or not validation.valid:
             raise ValueError("Submission refused: synthetic or invalid bid")
         if not context.commercial or not context.commercial.signing_token:

@@ -1,8 +1,36 @@
 """Only the coordinator mutates state; tasks receive isolated typed snapshots."""
 from dataclasses import dataclass, field
+from pydantic import BaseModel
 from core.config import RunConfig
 from core.contracts import (AgentResult, AgentStatus, TenderData, TechnicalRequirements,
     ERPData, CommercialPolicies, BidResult, Evidence, MissingInformation, ValidationResult, SubmissionReceipt)
+
+def merge_progress(previous, incoming):
+    """Merge partial records without losing previously observed fields or mixing revisions."""
+    if previous is None or type(previous) is not type(incoming):
+        return incoming
+    if isinstance(incoming, BaseModel):
+        if hasattr(incoming, "revision") and incoming.revision and previous.revision != incoming.revision:
+            return incoming
+        updates = {}
+        for name in type(incoming).model_fields:
+            old, new = getattr(previous, name), getattr(incoming, name)
+            updates[name] = old if new is None else merge_progress(old, new)
+        return incoming.model_copy(update=updates)
+    if isinstance(incoming, list):
+        def identity(value):
+            if isinstance(value, Evidence): return (value.id, value.field, value.excerpt)
+            for name in ("position_id", "requirement_id", "material_id", "identifier", "url", "key"):
+                key = getattr(value, name, None)
+                if key is not None:
+                    return (name, key, getattr(value, "effective_at", None))
+            return repr(value)
+        merged = {identity(value): value for value in previous}
+        for value in incoming:
+            key = identity(value)
+            merged[key] = merge_progress(merged.get(key), value)
+        return list(merged.values())
+    return incoming
 
 @dataclass
 class RunState:
@@ -24,7 +52,12 @@ class RunState:
     def collect(self, result: AgentResult):
         self.statuses[result.agent_id] = result.status
         self.results.append(result)
-        self.evidence.extend(result.evidence)
+        known = {(e.id, e.field, e.excerpt) for e in self.evidence}
+        for evidence in result.evidence:
+            key = (evidence.id, evidence.field, evidence.excerpt)
+            if key not in known:
+                self.evidence.append(evidence)
+                known.add(key)
         self.missing = [x for x in self.missing if x.agent_id != result.agent_id]
         self.missing.extend(result.missing)
         if result.error:
@@ -32,6 +65,13 @@ class RunState:
         for kind, name in [(TenderData, "tender"), (TechnicalRequirements, "technical"),
                            (ERPData, "erp"), (CommercialPolicies, "commercial"), (BidResult, "bid")]:
             if isinstance(result.output, kind):
-                setattr(self, name, result.output.model_copy(deep=True))
+                output = result.output
+                if result.status in (AgentStatus.partial, AgentStatus.blocked, AgentStatus.failed):
+                    output = merge_progress(getattr(self, name), output)
+                setattr(self, name, output.model_copy(deep=True))
         if hasattr(result.output, "evidence"):
-            self.evidence.extend(result.output.evidence)
+            for evidence in result.output.evidence:
+                key = (evidence.id, evidence.field, evidence.excerpt)
+                if key not in known:
+                    self.evidence.append(evidence)
+                    known.add(key)

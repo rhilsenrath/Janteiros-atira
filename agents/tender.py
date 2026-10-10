@@ -1,9 +1,5 @@
-from agents.base import BaseAgent, AgentContext
-from core.contracts import AgentTask, AgentResult
+from agents.website import WebsiteAgent
 
-class TenderAgent(BaseAgent):
+class TenderAgent(WebsiteAgent):
     agent_id = "tender"
-    responsibility = "tender investigation and signed portal submission"
-
-    async def execute(self, task: AgentTask, context: AgentContext) -> AgentResult:
-        return self.blocked()
+    responsibility = 'Locate the active RFQ; extract reference, positions, final quantities/units, technical references, documents and Q&A with withdrawals and scoped amendments.'

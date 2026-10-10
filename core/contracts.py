@@ -21,6 +21,7 @@ class Evidence(Record):
     id: str
     agent_id: str
     source_site: str
+    source_url: str | None = None
     document: str | None = None
     reference: str | None = None
     revision: str | None = None
@@ -43,11 +44,28 @@ class TenderPosition(Provenanced):
     delivery_key: str | None = None
     setup_pool: str | None = None
 
+class Clarification(Provenanced):
+    identifier: str
+    text: str
+    position_id: str | None = None
+    dated_at: datetime | None = None
+    withdraws: list[str] = Field(default_factory=list)
+    specification_revision: str | None = None
+
+class DocumentReference(Provenanced):
+    title: str
+    url: str | None = None
+    revision: str | None = None
+    current: bool | None = None
+
 class TenderData(Provenanced):
     kind: Literal["tender"] = "tender"
     reference: str | None = None
     scenario_date: datetime | None = None
     positions: list[TenderPosition] = Field(default_factory=list)
+    clarifications: list[Clarification] = Field(default_factory=list)
+    documents: list[DocumentReference] = Field(default_factory=list)
+    conflicts: list[str] = Field(default_factory=list)
 
 class TechnicalRequirement(Provenanced):
     requirement_id: str
@@ -59,10 +77,14 @@ class TechnicalRequirement(Provenanced):
     mounting: str | None = None
     certification: str | None = None
     pieces_per_set: Decimal | None = None
+    stroke_kind: str | None = None
+    attributes: dict[str, str] = Field(default_factory=dict)
 
 class TechnicalRequirements(Provenanced):
     kind: Literal["technical"] = "technical"
     requirements: list[TechnicalRequirement] = Field(default_factory=list)
+    documents: list[DocumentReference] = Field(default_factory=list)
+    conflicts: list[str] = Field(default_factory=list)
 
 class PriceCondition(Provenanced):
     price: Decimal | None = None
@@ -81,6 +103,9 @@ class MaterialCandidate(Provenanced):
     stock: Decimal | None = None
     stock_lead_days: int | None = None
     production_lead_days: int | None = None
+    stock_lead_weeks: int | None = None
+    production_lead_weeks: int | None = None
+    attributes: dict[str, str] = Field(default_factory=dict)
     setup_fee: Decimal | None = None
     surcharge_mass: Decimal | None = None
     allocation_mass: Decimal | None = None
@@ -89,6 +114,7 @@ class MaterialCandidate(Provenanced):
 class ERPData(Provenanced):
     kind: Literal["erp"] = "erp"
     materials: list[MaterialCandidate] = Field(default_factory=list)
+    conflicts: list[str] = Field(default_factory=list)
 
 class CommercialRule(Provenanced):
     key: str
@@ -97,11 +123,16 @@ class CommercialRule(Provenanced):
     authorized_sender: str | None = None
     effective_at: datetime | None = None
     supersedes: str | None = None
+    tender_reference: str | None = None
+    subject: str | None = None
+    authorized: bool | None = None
+    valid_until: datetime | None = None
 
 class CommercialPolicies(Provenanced):
     kind: Literal["commercial"] = "commercial"
     rules: list[CommercialRule] = Field(default_factory=list)
     approved_discount: Decimal | None = None
+    conflicts: list[str] = Field(default_factory=list)
     signing_token: SecretStr | None = Field(default=None, exclude=True, repr=False)
 
 class BidPosition(Provenanced):
@@ -142,7 +173,7 @@ class MissingInformation(Record):
     position_id: str | None = None
 
 class AgentTask(Record):
-    action: Literal["investigate", "price", "submit", "reinvestigate"] = "investigate"
+    action: Literal["investigate", "price", "submit", "reinvestigate", "retrieve_signing_token"] = "investigate"
     question: str | None = None
     tender: TenderData | None = None
     technical: TechnicalRequirements | None = None

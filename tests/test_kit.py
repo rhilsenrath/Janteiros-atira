@@ -178,7 +178,7 @@ class TheEntryPoint(Case):
         out = io.StringIO()
         # A sandbox run supplies four managed sessions; connector remains entirely fake.
         if environment.get("CHALLENGE_RUN_TOKEN"):
-            environment = {**environment, "CDP_URLS": json.dumps(["fake:0", "fake:1", "fake:2", "fake:3"])}
+            environment = {**environment, "CDP_URLS": json.dumps(["http://browser-0.invalid", "http://browser-1.invalid", "http://browser-2.invalid", "http://browser-3.invalid"])}
         with patch.dict(os.environ, environment, clear=True), patch.object(browsers, "connect", connect), \
                 patch.object(agent, "solve", solve), redirect_stdout(out):
             code = await agent.main()

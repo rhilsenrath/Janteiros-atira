@@ -8,15 +8,15 @@ from agents.supplier import SupplierAgent
 from agents.erp import ErpAgent
 from agents.mail import MailAgent
 from agents.pricing import PricingAgent
-from agents.mock import MockAgent
 from core.config import RunConfig
-from core.contracts import (AgentTask, AgentResult, AgentStatus, SubmissionReceipt,
+from core.contracts import (AgentTask, AgentResult, AgentStatus,
     TenderData, TechnicalRequirements, ERPData, CommercialPolicies, BidResult, is_synthetic)
 from core.state import RunState
 from core.events import ProgressEvent
 from services.bid_validator import BidValidator
 from services.submission import GuardedSubmission
-from tools.browser_manager import MockBrowserManager
+from core.access import AccessManager
+from tools.logging import RunLogger
 
 class Planner(Protocol):
     def stages(self) -> tuple[tuple[str, ...], ...]: ...
@@ -27,19 +27,21 @@ class DeterministicPlanner:
 
 class Orchestrator:
     def __init__(self, runtime, browser_manager, config=None, agents=None, llm=None,
-                 planner=None, validator=None, submission=None, on_event=None):
+                 planner=None, validator=None, submission=None, on_event=None, access_manager=None, logger=None):
         self.config = config or RunConfig()
         self.runtime = runtime
         self.browsers = browser_manager
         self.llm = llm
+        self.access = access_manager
+        self.logger = logger or RunLogger()
+        self.changed = asyncio.Event()
+        self.finished = set()
         self.planner = planner or DeterministicPlanner()
         self.validator = validator or BidValidator()
         self.submission = submission or GuardedSubmission()
         self.on_event = on_event or (lambda event: None)
-        self.agents = agents if agents is not None else (
-            {name: MockAgent(name) for name in ("tender", "supplier", "erp", "mail", "pricing")}
-            if self.config.mode == "mock" else
-            {a.agent_id: a for a in (TenderAgent(), SupplierAgent(), ErpAgent(), MailAgent(), PricingAgent())})
+        self.agents = agents if agents is not None else {
+            a.agent_id: a for a in (TenderAgent(), SupplierAgent(), ErpAgent(), MailAgent(), PricingAgent())}
         required = {"tender", "supplier", "erp", "mail", "pricing"}
         if set(self.agents) != required or any(k != a.agent_id for k, a in self.agents.items()):
             raise ValueError("Register all five uniquely identified workers")
@@ -51,7 +53,36 @@ class Orchestrator:
 
     def context(self, agent_id):
         return AgentContext(runtime=self.runtime, config=self.config, llm=self.llm,
-            page=self.browsers.page_for(agent_id) if agent_id != "pricing" else None)
+            page=self.browsers.page_for(agent_id) if agent_id != "pricing" else None,
+            access_manager=self.access, logger=self.logger, report=self.report,
+            get_task=lambda task: self.refresh_task(agent_id, task))
+
+    async def report(self, result):
+        expected = {"tender": TenderData, "supplier": TechnicalRequirements, "erp": ERPData,
+                    "mail": CommercialPolicies, "pricing": BidResult}
+        if result.agent_id not in expected or (result.output is not None and
+                not isinstance(result.output, expected[result.agent_id])):
+            raise ValueError("Progress must match registered worker output contract")
+        if self.config.mode == "production" and is_synthetic(result):
+            raise ValueError("Synthetic progress refused")
+        self.state.collect(result)
+        self.changed.set()
+        self.logger.emit("partial_result", agent=result.agent_id, status=result.status.value,
+                         count=len(result.evidence))
+
+    async def refresh_task(self, agent_id, task):
+        # Wait on events, never poll the pages or hold a browser lock while awaiting peers.
+        dependency = {"mail": "tender", "erp": "supplier"}.get(agent_id)
+        while dependency:
+            ready = bool(self.state.tender and self.state.tender.reference) if agent_id == "mail" else bool(
+                self.state.technical and self.state.technical.requirements)
+            if ready or dependency in self.finished:
+                break
+            self.changed.clear()
+            self.logger.emit("dependency_wait", agent=agent_id, operation=dependency)
+            await self.changed.wait()
+        current = self.task(task.action, task.question)
+        return current
 
     def task(self, action="investigate", question=None):
         return AgentTask(action=action, question=question, tender=self.state.tender,
@@ -61,6 +92,7 @@ class Orchestrator:
     async def execute(self, agent_id, task):
         self.state.statuses[agent_id] = AgentStatus.running
         self.on_event(ProgressEvent(agent_id, AgentStatus.running, task.action))
+        self.logger.emit("agent_running", agent=agent_id, operation=task.action)
         expected = {"tender": TenderData, "supplier": TechnicalRequirements,
                     "erp": ERPData, "mail": CommercialPolicies, "pricing": BidResult}
         for attempt in range(self.config.retries + 1):
@@ -83,13 +115,21 @@ class Orchestrator:
             except TimeoutError:
                 result = AgentResult(agent_id=agent_id, status=AgentStatus.failed,
                     error="Worker exceeded execution timeout", retryable=True)
-            except Exception:
+            except Exception as error:
+                self.logger.emit("worker_error", agent=agent_id, error_type=type(error).__name__)
                 # Exception strings may contain runtime credentials; do not retain them.
                 result = AgentResult(agent_id=agent_id, status=AgentStatus.failed,
                     error="Worker failed; inspect locally without exposing runtime secrets")
             if result.status != AgentStatus.failed or not result.retryable or attempt == self.config.retries:
+                self.logger.emit("agent_finished", agent=agent_id, status=result.status.value,
+                                 count=len(result.evidence))
                 return result
         raise AssertionError("unreachable")
+
+    def pricing_ready(self):
+        values = (self.state.tender, self.state.technical, self.state.erp, self.state.commercial)
+        return all(value is not None for value in values) and (
+            self.config.mode == "test" or all(value.evidence and not is_synthetic(value) for value in values))
 
     async def stage(self, names):
         results = await asyncio.gather(*(self.execute(name,
@@ -97,6 +137,15 @@ class Orchestrator:
         for result in results:
             self.state.collect(result)
             self.on_event(ProgressEvent(result.agent_id, result.status, "collected"))
+
+    async def investigate(self, name):
+        try:
+            result = await self.execute(name, self.task())
+            self.state.collect(result)
+            self.on_event(ProgressEvent(name, result.status, "collected"))
+        finally:
+            self.finished.add(name)
+            self.changed.set()
 
     async def run(self):
         try:
@@ -107,13 +156,29 @@ class Orchestrator:
                         error="Execution deadline reached"))
                 return None
             await asyncio.wait_for(self.browsers.initialize(), min(self.config.task_timeout, remaining))
-            for names in self.planner.stages():
+            self.logger.emit("browser_sessions_ready", count=4)
+            if self.config.mode == "production":
+                self.access = self.access or AccessManager(self.runtime)
+                if self.access.assignments is None:
+                    if self.llm is None:
+                        raise ValueError("Model client required for dynamic runtime role assignment")
+                    await asyncio.wait_for(self.access.resolve(self.llm, self.runtime.get("brief", "")),
+                                           min(self.config.task_timeout,
+                                               max(.001, contract.seconds_left(self.runtime) - self.config.deadline_reserve)))
+                self.logger.emit("runtime_access_resolved", count=4)
+                # All sessions authenticate concurrently; Mail/ERP wait for incremental dependencies
+                # before business searches, not before opening/login to their own sites.
+                await asyncio.gather(*(self.investigate(name) for name in ("tender","supplier","erp","mail")))
+                stages = (("pricing",),)
+            else:
+                # Injected local test workers only; no production simulator or synthetic defaults.
+                stages = self.planner.stages()
+            for names in stages:
                 if "erp" in names and self.state.technical is None:
                     self.state.collect(AgentResult(agent_id="erp", status=AgentStatus.blocked,
                         error="Technical requirements unavailable"))
                     names = tuple(n for n in names if n != "erp")
-                if "pricing" in names and any(value is None for value in
-                        (self.state.tender, self.state.technical, self.state.erp, self.state.commercial)):
+                if "pricing" in names and not self.pricing_ready():
                     self.state.collect(AgentResult(agent_id="pricing", status=AgentStatus.blocked,
                         error="Required pricing inputs unavailable"))
                     names = tuple(n for n in names if n != "pricing")
@@ -128,12 +193,13 @@ class Orchestrator:
                         result = await self.execute(request.agent_id,
                             self.task("reinvestigate", request.question))
                         self.state.collect(result)
-                await self.stage(("pricing",))
+                if self.pricing_ready():
+                    await self.stage(("pricing",))
             if self.state.bid is None:
                 return None
             self.state.validation = self.validator.validate(self.state.bid,
                 self.runtime.get("answer_schema", {}), self.state.evidence)
-            if self.config.mode == "mock" or self.state.validation.valid:
+            if self.state.validation.valid and self.config.enable_submission:
                 context = SubmissionContext(self.runtime, self.config, self.state.commercial, self.context("tender"))
                 remaining = contract.seconds_left(self.runtime) - self.config.deadline_reserve
                 if remaining <= 0:
@@ -146,17 +212,11 @@ class Orchestrator:
             return None
         except TimeoutError:
             self.state.errors.append("Resource initialization or submission exceeded execution timeout")
+            self.logger.emit("run_error", error_type="TimeoutError")
+            return None
+        except Exception as error:
+            self.state.errors.append(f"Run integration failed: {type(error).__name__}")
+            self.logger.emit("run_error", error_type=type(error).__name__)
             return None
         finally:
             await self.browsers.close()
-
-async def demo():
-    config = RunConfig(mode="mock")
-    orchestrator = Orchestrator({"brief": "Synthetic integration exercise", "access": [],
-        "answer_schema": {}, "submission": {"kind": "site"}}, MockBrowserManager(), config)
-    await orchestrator.run()
-    print("Mock workflow completed; no genuine evidence or submission.")
-    print({k: v.value for k, v in orchestrator.state.statuses.items()})
-
-if __name__ == "__main__":
-    asyncio.run(demo())
