@@ -1,0 +1,82 @@
+{
+  "agent_id": "supplier",
+  "status": "partial",
+  "output": {
+    "evidence": [
+      {
+        "id": "supplier:99368951fbe04131b50066387b597e61",
+        "agent_id": "supplier",
+        "source_site": "customer-portal",
+        "source_url": "https://atira-rfq-customer-portal.kyora.run/documents/specification",
+        "document": null,
+        "reference": null,
+        "revision": null,
+        "observed_at": "2026-10-10T16:38:47.378892Z",
+        "applicable_at": null,
+        "field": null,
+        "excerpt": "Dokumentenüberlassung",
+        "mock": false
+      }
+    ],
+    "kind": "technical",
+    "requirements": [],
+    "documents": [],
+    "conflicts": [
+      "The governing specification revision and its current status are unknown because the document list on the customer portal is not fully visible.",
+      "Clarifications 8153 and 8163 are listed in the Q&A but their content is not available, so it is unknown if they contain quantity changes, withdrawals, or technical amendments relevant to positions 01.01 or others.",
+      "Requirement IDs A-1, A-2, A-4, and A-5 cannot be resolved without the current technical specification revision.",
+      "The status of document revisions for the Lastenheft, Leistungsbeschreibung, and other tender documents is unknown."
+    ]
+  },
+  "evidence": [
+    {
+      "id": "supplier:99368951fbe04131b50066387b597e61",
+      "agent_id": "supplier",
+      "source_site": "customer-portal",
+      "source_url": "https://atira-rfq-customer-portal.kyora.run/documents/specification",
+      "document": null,
+      "reference": null,
+      "revision": null,
+      "observed_at": "2026-10-10T16:38:47.378892Z",
+      "applicable_at": null,
+      "field": null,
+      "excerpt": "Dokumentenüberlassung",
+      "mock": false
+    }
+  ],
+  "missing": [
+    {
+      "agent_id": "supplier",
+      "question": "Please provide a list of specification revisions, including the revision marked as current, and the technical requirement IDs associated with positions A-1, A-2, A-4, and A-5.",
+      "position_id": null
+    },
+    {
+      "agent_id": "tender",
+      "question": "What is the full text of clarifications 8153 and 8163?",
+      "position_id": null
+    },
+    {
+      "agent_id": "erp",
+      "question": "List active ERP materials matching requirement A-1",
+      "position_id": null
+    },
+    {
+      "agent_id": "erp",
+      "question": "List active ERP materials matching requirement A-2",
+      "position_id": null
+    },
+    {
+      "agent_id": "erp",
+      "question": "List active ERP materials matching requirement A-4",
+      "position_id": null
+    },
+    {
+      "agent_id": "erp",
+      "question": "List active ERP materials matching requirement A-5",
+      "position_id": null
+    }
+  ],
+  "error": "Investigation interrupted: ValidationError",
+  "retryable": false,
+  "mock": false
+}

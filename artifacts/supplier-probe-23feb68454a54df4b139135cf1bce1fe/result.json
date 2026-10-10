@@ -1,0 +1,169 @@
+{
+  "agent_id": "supplier",
+  "status": "partial",
+  "output": {
+    "evidence": [
+      {
+        "id": "supplier:a7947f14e7ee4686abbfdcb53415b19d",
+        "agent_id": "supplier",
+        "source_site": "customer-portal",
+        "source_url": "https://atira-rfq-customer-portal.kyora.run/documents/specification?revision=R-9711",
+        "document": null,
+        "reference": "R-9711",
+        "revision": "R-9711",
+        "observed_at": "2026-10-10T16:53:13.156158Z",
+        "applicable_at": null,
+        "field": null,
+        "excerpt": "A-2\nBohrung (mm): 63\n500, en-US\n250, de-DE\nFlansch",
+        "mock": false
+      },
+      {
+        "id": "supplier:a7947f14e7ee4686abbfdcb53415b19d",
+        "agent_id": "supplier",
+        "source_site": "customer-portal",
+        "source_url": "https://atira-rfq-customer-portal.kyora.run/documents/specification?revision=R-9711",
+        "document": null,
+        "reference": "R-9711",
+        "revision": "R-9711",
+        "observed_at": "2026-10-10T16:53:13.156158Z",
+        "applicable_at": null,
+        "field": null,
+        "excerpt": "Prüfvermerk siehe Freigabestand",
+        "mock": false
+      }
+    ],
+    "kind": "technical",
+    "requirements": [
+      {
+        "evidence": [
+          {
+            "id": "supplier:a7947f14e7ee4686abbfdcb53415b19d",
+            "agent_id": "supplier",
+            "source_site": "customer-portal",
+            "source_url": "https://atira-rfq-customer-portal.kyora.run/documents/specification?revision=R-9711",
+            "document": null,
+            "reference": "R-9711",
+            "revision": "R-9711",
+            "observed_at": "2026-10-10T16:53:13.156158Z",
+            "applicable_at": null,
+            "field": null,
+            "excerpt": "A-2\nBohrung (mm): 63\n500, en-US\n250, de-DE\nFlansch",
+            "mock": false
+          },
+          {
+            "id": "supplier:a7947f14e7ee4686abbfdcb53415b19d",
+            "agent_id": "supplier",
+            "source_site": "customer-portal",
+            "source_url": "https://atira-rfq-customer-portal.kyora.run/documents/specification?revision=R-9711",
+            "document": null,
+            "reference": "R-9711",
+            "revision": "R-9711",
+            "observed_at": "2026-10-10T16:53:13.156158Z",
+            "applicable_at": null,
+            "field": null,
+            "excerpt": "Prüfvermerk siehe Freigabestand",
+            "mock": false
+          }
+        ],
+        "requirement_id": "A-2",
+        "revision": "R-9711",
+        "catalogue_group": null,
+        "bore": "63",
+        "stroke": "250",
+        "pressure": "500",
+        "mounting": "Flansch",
+        "certification": "Prüfvermerk siehe Freigabestand",
+        "pieces_per_set": null,
+        "stroke_kind": null,
+        "attributes": {}
+      }
+    ],
+    "documents": [
+      {
+        "evidence": [
+          {
+            "id": "supplier:a7947f14e7ee4686abbfdcb53415b19d",
+            "agent_id": "supplier",
+            "source_site": "customer-portal",
+            "source_url": "https://atira-rfq-customer-portal.kyora.run/documents/specification?revision=R-9711",
+            "document": null,
+            "reference": "R-9711",
+            "revision": "R-9711",
+            "observed_at": "2026-10-10T16:53:13.156158Z",
+            "applicable_at": null,
+            "field": null,
+            "excerpt": "A-2\nBohrung (mm): 63\n500, en-US\n250, de-DE\nFlansch",
+            "mock": false
+          },
+          {
+            "id": "supplier:a7947f14e7ee4686abbfdcb53415b19d",
+            "agent_id": "supplier",
+            "source_site": "customer-portal",
+            "source_url": "https://atira-rfq-customer-portal.kyora.run/documents/specification?revision=R-9711",
+            "document": null,
+            "reference": "R-9711",
+            "revision": "R-9711",
+            "observed_at": "2026-10-10T16:53:13.156158Z",
+            "applicable_at": null,
+            "field": null,
+            "excerpt": "Prüfvermerk siehe Freigabestand",
+            "mock": false
+          }
+        ],
+        "title": "Lastenheft Hydraulikzylinder für Werkstatt-Hebeanlagen",
+        "url": "https://atira-rfq-customer-portal.kyora.run/documents/specification?revision=R-9711",
+        "revision": "R-9711",
+        "current": null
+      }
+    ],
+    "conflicts": [
+      "Revision R-9711 is listed in the revision history, but its 'current' status is not explicitly marked as current in the observed text snippet.",
+      "Requirements A-1, A-4, and A-5 are not visible in the current observation."
+    ]
+  },
+  "evidence": [
+    {
+      "id": "supplier:a7947f14e7ee4686abbfdcb53415b19d",
+      "agent_id": "supplier",
+      "source_site": "customer-portal",
+      "source_url": "https://atira-rfq-customer-portal.kyora.run/documents/specification?revision=R-9711",
+      "document": null,
+      "reference": "R-9711",
+      "revision": "R-9711",
+      "observed_at": "2026-10-10T16:53:13.156158Z",
+      "applicable_at": null,
+      "field": null,
+      "excerpt": "A-2\nBohrung (mm): 63\n500, en-US\n250, de-DE\nFlansch",
+      "mock": false
+    },
+    {
+      "id": "supplier:a7947f14e7ee4686abbfdcb53415b19d",
+      "agent_id": "supplier",
+      "source_site": "customer-portal",
+      "source_url": "https://atira-rfq-customer-portal.kyora.run/documents/specification?revision=R-9711",
+      "document": null,
+      "reference": "R-9711",
+      "revision": "R-9711",
+      "observed_at": "2026-10-10T16:53:13.156158Z",
+      "applicable_at": null,
+      "field": null,
+      "excerpt": "Prüfvermerk siehe Freigabestand",
+      "mock": false
+    }
+  ],
+  "missing": [
+    {
+      "agent_id": "supplier",
+      "question": "Which specification revision is explicitly marked as current in the document metadata or revision history?",
+      "position_id": null
+    },
+    {
+      "agent_id": "supplier",
+      "question": "What are the technical attributes (bore, stroke, pressure, mounting, certification) for requirements A-1, A-4, and A-5 in the current specification revision?",
+      "position_id": null
+    }
+  ],
+  "error": "Investigation interrupted: ValidationError",
+  "retryable": false,
+  "mock": false
+}

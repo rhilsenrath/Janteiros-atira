@@ -1,0 +1,505 @@
+[
+  {
+    "phase": "authenticate",
+    "observation": {
+      "url": "https://atira-rfq-erp.kyora.run/login?returnTo=%2F",
+      "frames": [
+        {
+          "frame": 0,
+          "url": "https://atira-rfq-erp.kyora.run/login?returnTo=%2F",
+          "text": "ERP · SAP GUI für HTML\nAnmeldung\nBenutzername \nPasswort \nAnmelden\nDemonstrationssystem · Alle Angaben sind fiktiv · Zeitangaben: UTC\nERP · PRD / Mandant 100 · Anmeldung erforderlich\nSAP GUI für HTML\nAccessible labels:\n",
+          "offset": 0,
+          "total_characters": 218,
+          "controls": [
+            {
+              "target": "f0:e0",
+              "tag": "input",
+              "role": null,
+              "type": null,
+              "name": "username",
+              "disabled": false,
+              "readonly": false,
+              "autocomplete": "username",
+              "form": 0,
+              "in_dialog": false,
+              "min": null,
+              "max": null,
+              "step": null,
+              "range_value": null,
+              "checked": false,
+              "filled": false,
+              "label": "Benutzername",
+              "href": null,
+              "options": null
+            },
+            {
+              "target": "f0:e1",
+              "tag": "input",
+              "role": null,
+              "type": "password",
+              "name": "password",
+              "disabled": false,
+              "readonly": false,
+              "autocomplete": "current-password",
+              "form": 0,
+              "in_dialog": false,
+              "min": null,
+              "max": null,
+              "step": null,
+              "range_value": null,
+              "checked": false,
+              "filled": false,
+              "label": "Passwort",
+              "href": null,
+              "options": null
+            },
+            {
+              "target": "f0:e2",
+              "tag": "button",
+              "role": null,
+              "type": "submit",
+              "name": null,
+              "disabled": false,
+              "readonly": false,
+              "autocomplete": null,
+              "form": 0,
+              "in_dialog": false,
+              "min": null,
+              "max": null,
+              "step": null,
+              "range_value": null,
+              "checked": false,
+              "filled": false,
+              "label": "Anmelden",
+              "href": null,
+              "options": null
+            }
+          ]
+        }
+      ],
+      "tabs": [
+        {
+          "tab": 0,
+          "url": "https://atira-rfq-erp.kyora.run/login?returnTo=%2F"
+        }
+      ],
+      "downloads": []
+    }
+  },
+  {
+    "phase": "authenticate",
+    "observation": {
+      "url": "https://atira-rfq-erp.kyora.run/login?returnTo=%2F",
+      "frames": [
+        {
+          "frame": 0,
+          "url": "https://atira-rfq-erp.kyora.run/login?returnTo=%2F",
+          "text": "ERP · SAP GUI für HTML\nAnmeldung\nBenutzername \nPasswort \nAnmelden\nDemonstrationssystem · Alle Angaben sind fiktiv · Zeitangaben: UTC\nERP · PRD / Mandant 100 · Anmeldung erforderlich\nSAP GUI für HTML\nAccessible labels:\n",
+          "offset": 0,
+          "total_characters": 218,
+          "controls": [
+            {
+              "target": "f0:e0",
+              "tag": "input",
+              "role": null,
+              "type": null,
+              "name": "username",
+              "disabled": false,
+              "readonly": false,
+              "autocomplete": "username",
+              "form": 0,
+              "in_dialog": false,
+              "min": null,
+              "max": null,
+              "step": null,
+              "range_value": null,
+              "checked": false,
+              "filled": false,
+              "label": "Benutzername",
+              "href": null,
+              "options": null
+            },
+            {
+              "target": "f0:e1",
+              "tag": "input",
+              "role": null,
+              "type": "password",
+              "name": "password",
+              "disabled": false,
+              "readonly": false,
+              "autocomplete": "current-password",
+              "form": 0,
+              "in_dialog": false,
+              "min": null,
+              "max": null,
+              "step": null,
+              "range_value": null,
+              "checked": false,
+              "filled": false,
+              "label": "Passwort",
+              "href": null,
+              "options": null
+            },
+            {
+              "target": "f0:e2",
+              "tag": "button",
+              "role": null,
+              "type": "submit",
+              "name": null,
+              "disabled": false,
+              "readonly": false,
+              "autocomplete": null,
+              "form": 0,
+              "in_dialog": false,
+              "min": null,
+              "max": null,
+              "step": null,
+              "range_value": null,
+              "checked": false,
+              "filled": false,
+              "label": "Anmelden",
+              "href": null,
+              "options": null
+            }
+          ]
+        }
+      ],
+      "tabs": [
+        {
+          "tab": 0,
+          "url": "https://atira-rfq-erp.kyora.run/login?returnTo=%2F"
+        }
+      ],
+      "downloads": []
+    },
+    "action": {
+      "operation": "fill",
+      "target": "f0:e0",
+      "offset": 0
+    }
+  },
+  {
+    "phase": "authenticate",
+    "observation": {
+      "url": "https://atira-rfq-erp.kyora.run/login?returnTo=%2F",
+      "frames": [
+        {
+          "frame": 0,
+          "url": "https://atira-rfq-erp.kyora.run/login?returnTo=%2F",
+          "text": "ERP · SAP GUI für HTML\nAnmeldung\nBenutzername \nPasswort \nAnmelden\nDemonstrationssystem · Alle Angaben sind fiktiv · Zeitangaben: UTC\nERP · PRD / Mandant 100 · Anmeldung erforderlich\nSAP GUI für HTML\nAccessible labels:\n",
+          "offset": 0,
+          "total_characters": 218,
+          "controls": [
+            {
+              "target": "f0:e0",
+              "tag": "input",
+              "role": null,
+              "type": null,
+              "name": "username",
+              "disabled": false,
+              "readonly": false,
+              "autocomplete": "username",
+              "form": 0,
+              "in_dialog": false,
+              "min": null,
+              "max": null,
+              "step": null,
+              "range_value": null,
+              "checked": false,
+              "filled": false,
+              "label": "Benutzername",
+              "href": null,
+              "options": null
+            },
+            {
+              "target": "f0:e1",
+              "tag": "input",
+              "role": null,
+              "type": "password",
+              "name": "password",
+              "disabled": false,
+              "readonly": false,
+              "autocomplete": "current-password",
+              "form": 0,
+              "in_dialog": false,
+              "min": null,
+              "max": null,
+              "step": null,
+              "range_value": null,
+              "checked": false,
+              "filled": false,
+              "label": "Passwort",
+              "href": null,
+              "options": null
+            },
+            {
+              "target": "f0:e2",
+              "tag": "button",
+              "role": null,
+              "type": "submit",
+              "name": null,
+              "disabled": false,
+              "readonly": false,
+              "autocomplete": null,
+              "form": 0,
+              "in_dialog": false,
+              "min": null,
+              "max": null,
+              "step": null,
+              "range_value": null,
+              "checked": false,
+              "filled": false,
+              "label": "Anmelden",
+              "href": null,
+              "options": null
+            }
+          ]
+        }
+      ],
+      "tabs": [
+        {
+          "tab": 0,
+          "url": "https://atira-rfq-erp.kyora.run/login?returnTo=%2F"
+        }
+      ],
+      "downloads": []
+    },
+    "action": {
+      "operation": "fill",
+      "target": "f0:e1",
+      "offset": 0
+    }
+  },
+  {
+    "phase": "authenticate",
+    "observation": {
+      "url": "https://atira-rfq-erp.kyora.run/login?returnTo=%2F",
+      "frames": [
+        {
+          "frame": 0,
+          "url": "https://atira-rfq-erp.kyora.run/login?returnTo=%2F",
+          "text": "ERP · SAP GUI für HTML\nAnmeldung\nBenutzername \nPasswort \nAnmelden\nDemonstrationssystem · Alle Angaben sind fiktiv · Zeitangaben: UTC\nERP · PRD / Mandant 100 · Anmeldung erforderlich\nSAP GUI für HTML\nAccessible labels:\n",
+          "offset": 0,
+          "total_characters": 218,
+          "controls": [
+            {
+              "target": "f0:e0",
+              "tag": "input",
+              "role": null,
+              "type": null,
+              "name": "username",
+              "disabled": false,
+              "readonly": false,
+              "autocomplete": "username",
+              "form": 0,
+              "in_dialog": false,
+              "min": null,
+              "max": null,
+              "step": null,
+              "range_value": null,
+              "checked": false,
+              "filled": false,
+              "label": "Benutzername",
+              "href": null,
+              "options": null
+            },
+            {
+              "target": "f0:e1",
+              "tag": "input",
+              "role": null,
+              "type": "password",
+              "name": "password",
+              "disabled": false,
+              "readonly": false,
+              "autocomplete": "current-password",
+              "form": 0,
+              "in_dialog": false,
+              "min": null,
+              "max": null,
+              "step": null,
+              "range_value": null,
+              "checked": false,
+              "filled": false,
+              "label": "Passwort",
+              "href": null,
+              "options": null
+            },
+            {
+              "target": "f0:e2",
+              "tag": "button",
+              "role": null,
+              "type": "submit",
+              "name": null,
+              "disabled": false,
+              "readonly": false,
+              "autocomplete": null,
+              "form": 0,
+              "in_dialog": false,
+              "min": null,
+              "max": null,
+              "step": null,
+              "range_value": null,
+              "checked": false,
+              "filled": false,
+              "label": "Anmelden",
+              "href": null,
+              "options": null
+            }
+          ]
+        }
+      ],
+      "tabs": [
+        {
+          "tab": 0,
+          "url": "https://atira-rfq-erp.kyora.run/login?returnTo=%2F"
+        }
+      ],
+      "downloads": []
+    },
+    "action": {
+      "operation": "click",
+      "target": "f0:e2",
+      "offset": 0
+    }
+  },
+  {
+    "phase": "authenticate",
+    "observation": {
+      "url": "https://atira-rfq-erp.kyora.run/consent?returnTo=%2F",
+      "frames": [
+        {
+          "frame": 0,
+          "url": "https://atira-rfq-erp.kyora.run/consent?returnTo=%2F",
+          "text": "ERP · SAP GUI für HTML\nCookie-Einstellungen\nFür die Nutzung sind notwendige Sitzungscookies erforderlich.\nNotwendige Cookies akzeptieren\nDemonstrationssystem · Alle Angaben sind fiktiv · Zeitangaben: UTC\nERP · PRD / Mandant 100 · Linden Hydraulik und Komponenten GmbH\nSystemdatum: 25.01.2027 · Systemzeit: 09:00:00 UTC\nAccessible labels:\n",
+          "offset": 0,
+          "total_characters": 338,
+          "controls": [
+            {
+              "target": "f0:e0",
+              "tag": "button",
+              "role": null,
+              "type": "submit",
+              "name": null,
+              "disabled": false,
+              "readonly": false,
+              "autocomplete": null,
+              "form": 0,
+              "in_dialog": false,
+              "min": null,
+              "max": null,
+              "step": null,
+              "range_value": null,
+              "checked": false,
+              "filled": false,
+              "label": "Notwendige Cookies akzeptieren",
+              "href": null,
+              "options": null
+            }
+          ]
+        }
+      ],
+      "tabs": [
+        {
+          "tab": 0,
+          "url": "https://atira-rfq-erp.kyora.run/consent?returnTo=%2F"
+        }
+      ],
+      "downloads": []
+    }
+  },
+  {
+    "phase": "authenticate",
+    "observation": {
+      "url": "https://atira-rfq-erp.kyora.run/consent?returnTo=%2F",
+      "frames": [
+        {
+          "frame": 0,
+          "url": "https://atira-rfq-erp.kyora.run/consent?returnTo=%2F",
+          "text": "ERP · SAP GUI für HTML\nCookie-Einstellungen\nFür die Nutzung sind notwendige Sitzungscookies erforderlich.\nNotwendige Cookies akzeptieren\nDemonstrationssystem · Alle Angaben sind fiktiv · Zeitangaben: UTC\nERP · PRD / Mandant 100 · Linden Hydraulik und Komponenten GmbH\nSystemdatum: 25.01.2027 · Systemzeit: 09:00:00 UTC\nAccessible labels:\n",
+          "offset": 0,
+          "total_characters": 338,
+          "controls": [
+            {
+              "target": "f0:e0",
+              "tag": "button",
+              "role": null,
+              "type": "submit",
+              "name": null,
+              "disabled": false,
+              "readonly": false,
+              "autocomplete": null,
+              "form": 0,
+              "in_dialog": false,
+              "min": null,
+              "max": null,
+              "step": null,
+              "range_value": null,
+              "checked": false,
+              "filled": false,
+              "label": "Notwendige Cookies akzeptieren",
+              "href": null,
+              "options": null
+            }
+          ]
+        }
+      ],
+      "tabs": [
+        {
+          "tab": 0,
+          "url": "https://atira-rfq-erp.kyora.run/consent?returnTo=%2F"
+        }
+      ],
+      "downloads": []
+    },
+    "action": {
+      "operation": "click",
+      "target": "f0:e0",
+      "offset": 0
+    }
+  },
+  {
+    "phase": "authenticate",
+    "observation": {
+      "url": "https://atira-rfq-erp.kyora.run/notice",
+      "frames": [
+        {
+          "frame": 0,
+          "url": "https://atira-rfq-erp.kyora.run/notice",
+          "text": "ERP · SAP GUI für HTML\nDienst vorübergehend nicht verfügbar\n\nDie Anfrage konnte nicht verarbeitet werden.\n\nErneut versuchen\nDemonstrationssystem · Alle Angaben sind fiktiv · Zeitangaben: UTC\nERP · PRD / Mandant 100 · Linden Hydraulik und Komponenten GmbH\nSystemdatum: 25.01.2027 · Systemzeit: 09:00:00 UTC\nAccessible labels:\n",
+          "offset": 0,
+          "total_characters": 325,
+          "controls": [
+            {
+              "target": "f0:e0",
+              "tag": "a",
+              "role": null,
+              "type": null,
+              "name": null,
+              "disabled": false,
+              "readonly": false,
+              "autocomplete": null,
+              "form": null,
+              "in_dialog": false,
+              "min": null,
+              "max": null,
+              "step": null,
+              "range_value": null,
+              "checked": false,
+              "filled": null,
+              "label": "Erneut versuchen",
+              "href": "https://atira-rfq-erp.kyora.run/notice",
+              "options": null
+            }
+          ]
+        }
+      ],
+      "tabs": [
+        {
+          "tab": 0,
+          "url": "https://atira-rfq-erp.kyora.run/notice"
+        }
+      ],
+      "downloads": []
+    }
+  }
+]

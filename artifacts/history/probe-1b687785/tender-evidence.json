@@ -1,0 +1,55 @@
+{
+  "agent_id": "tender",
+  "status": "partial",
+  "output": {
+    "evidence": [
+      {
+        "id": "tender:b30a961deb9f42a5896de6ffa995913c",
+        "agent_id": "tender",
+        "source_site": "tender-portal",
+        "source_url": "https://atira-rfq-tender-portal.kyora.run/",
+        "document": null,
+        "reference": null,
+        "revision": null,
+        "observed_at": "2026-10-10T16:06:23.712666Z",
+        "applicable_at": null,
+        "field": null,
+        "excerpt": "VG-2027-7093",
+        "mock": false
+      }
+    ],
+    "kind": "tender",
+    "reference": "VG-2027-7093",
+    "scenario_date": null,
+    "positions": [],
+    "clarifications": [],
+    "documents": [],
+    "conflicts": []
+  },
+  "evidence": [
+    {
+      "id": "tender:b30a961deb9f42a5896de6ffa995913c",
+      "agent_id": "tender",
+      "source_site": "tender-portal",
+      "source_url": "https://atira-rfq-tender-portal.kyora.run/",
+      "document": null,
+      "reference": null,
+      "revision": null,
+      "observed_at": "2026-10-10T16:06:23.712666Z",
+      "applicable_at": null,
+      "field": null,
+      "excerpt": "VG-2027-7093",
+      "mock": false
+    }
+  ],
+  "missing": [
+    {
+      "agent_id": "tender",
+      "question": "Read the positions, procedure documents and applicable Q&A for this verified reference",
+      "position_id": null
+    }
+  ],
+  "error": null,
+  "retryable": false,
+  "mock": false
+}

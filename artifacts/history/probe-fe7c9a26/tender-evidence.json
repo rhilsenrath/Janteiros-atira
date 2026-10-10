@@ -1,0 +1,117 @@
+{
+  "agent_id": "tender",
+  "status": "partial",
+  "output": {
+    "evidence": [
+      {
+        "id": "tender:409a508624d54a66ab4ea8b648bd4b17",
+        "agent_id": "tender",
+        "source_site": "tender-portal",
+        "source_url": "https://atira-rfq-tender-portal.kyora.run/",
+        "document": null,
+        "reference": null,
+        "revision": null,
+        "observed_at": "2026-10-10T15:57:00.004847Z",
+        "applicable_at": null,
+        "field": null,
+        "excerpt": "VG-2027-7093",
+        "mock": false
+      },
+      {
+        "id": "tender:409a508624d54a66ab4ea8b648bd4b17",
+        "agent_id": "tender",
+        "source_site": "tender-portal",
+        "source_url": "https://atira-rfq-tender-portal.kyora.run/",
+        "document": null,
+        "reference": null,
+        "revision": null,
+        "observed_at": "2026-10-10T15:57:00.004847Z",
+        "applicable_at": null,
+        "field": null,
+        "excerpt": "Lieferung von Hydraulikzylinder für Werkstatt-Hebeanlagen",
+        "mock": false
+      },
+      {
+        "id": "tender:409a508624d54a66ab4ea8b648bd4b17",
+        "agent_id": "tender",
+        "source_site": "tender-portal",
+        "source_url": "https://atira-rfq-tender-portal.kyora.run/",
+        "document": null,
+        "reference": null,
+        "revision": "VG-2027-7093",
+        "observed_at": "2026-10-10T15:57:00.004847Z",
+        "applicable_at": null,
+        "field": null,
+        "excerpt": "Aktueller Hinweis",
+        "mock": false
+      }
+    ],
+    "kind": "tender",
+    "reference": "VG-2027-7093",
+    "scenario_date": null,
+    "positions": [],
+    "clarifications": [],
+    "documents": [],
+    "conflicts": [
+      "The source displays the word \"Frist\" for VG-2027-7093 but does not display an actual deadline date, so the deadline date cannot be verified.",
+      "The tender detail page, Q&A, technical specification revision, withdrawals, and scoped amendments are not present in the provided observation, so those fields cannot be extracted.",
+      "The observation only shows the notice listing for VG-2027-7093. The active status and actual deadline date are not verifiable because the Offers deadline column displays only the label Frist, not a date.",
+      "The detail page, Q&A, technical specification revision, withdrawals, and scoped amendments are not present in the provided observation, so positions, final quantities/units, technical references, documents, clarifications, withdrawals, and scoped amendments cannot be extracted.",
+      "The scenario date is not present in the provided observation."
+    ]
+  },
+  "evidence": [
+    {
+      "id": "tender:409a508624d54a66ab4ea8b648bd4b17",
+      "agent_id": "tender",
+      "source_site": "tender-portal",
+      "source_url": "https://atira-rfq-tender-portal.kyora.run/",
+      "document": null,
+      "reference": null,
+      "revision": null,
+      "observed_at": "2026-10-10T15:57:00.004847Z",
+      "applicable_at": null,
+      "field": null,
+      "excerpt": "VG-2027-7093",
+      "mock": false
+    },
+    {
+      "id": "tender:409a508624d54a66ab4ea8b648bd4b17",
+      "agent_id": "tender",
+      "source_site": "tender-portal",
+      "source_url": "https://atira-rfq-tender-portal.kyora.run/",
+      "document": null,
+      "reference": null,
+      "revision": null,
+      "observed_at": "2026-10-10T15:57:00.004847Z",
+      "applicable_at": null,
+      "field": null,
+      "excerpt": "Lieferung von Hydraulikzylinder für Werkstatt-Hebeanlagen",
+      "mock": false
+    },
+    {
+      "id": "tender:409a508624d54a66ab4ea8b648bd4b17",
+      "agent_id": "tender",
+      "source_site": "tender-portal",
+      "source_url": "https://atira-rfq-tender-portal.kyora.run/",
+      "document": null,
+      "reference": null,
+      "revision": "VG-2027-7093",
+      "observed_at": "2026-10-10T15:57:00.004847Z",
+      "applicable_at": null,
+      "field": null,
+      "excerpt": "Aktueller Hinweis",
+      "mock": false
+    }
+  ],
+  "missing": [
+    {
+      "agent_id": "tender",
+      "question": "Business facts are not yet verified",
+      "position_id": null
+    }
+  ],
+  "error": null,
+  "retryable": false,
+  "mock": false
+}

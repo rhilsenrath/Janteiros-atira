@@ -1,0 +1,10 @@
+{
+  "agent_id": "supplier",
+  "status": "failed",
+  "output": null,
+  "evidence": [],
+  "missing": [],
+  "error": "Website investigation failed: TimeoutError",
+  "retryable": true,
+  "mock": false
+}

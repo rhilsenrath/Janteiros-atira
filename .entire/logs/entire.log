@@ -1,0 +1,4 @@
+{"time":"2026-10-10T17:19:58.1206113+02:00","level":"INFO","msg":"redaction configured","component":"redaction","packs":0,"pack_rules":0,"inline_patterns":0,"active_rules":0,"pii":false,"opf":false}
+{"time":"2026-10-10T17:19:58.3900799+02:00","level":"INFO","msg":"redaction configured","component":"redaction","packs":0,"pack_rules":0,"inline_patterns":0,"active_rules":0,"pii":false,"opf":false}
+{"time":"2026-10-10T17:19:58.6199413+02:00","level":"INFO","msg":"redaction configured","component":"redaction","packs":0,"pack_rules":0,"inline_patterns":0,"active_rules":0,"pii":false,"opf":false}
+{"time":"2026-10-10T17:20:02.7700408+02:00","level":"INFO","msg":"redaction configured","component":"redaction","packs":0,"pack_rules":0,"inline_patterns":0,"active_rules":0,"pii":false,"opf":false}
