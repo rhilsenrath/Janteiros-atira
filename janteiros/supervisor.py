@@ -162,9 +162,13 @@ class Supervisor:
                     readiness=res.readiness, missing=res.missing[:12], facts=len(team.notebook.facts),
                     llm_calls=team.llm.usage.calls, cost=round(team.llm.usage.cost, 4))
             complete = res.positions and all(v == "complete" for v in res.readiness.values()) and not res.missing
-            if complete and not running:
-                log("collection_complete", elapsed=round(self.elapsed()))
-                return
+            if complete:
+                followups = [k for k in running if k.startswith("followup-")]
+                for k in followups:  # follow-ups exist only for missing items: nothing is missing any more
+                    self.specialists[k].cancelled = True
+                if not [k for k in running if not k.startswith("followup-")]:
+                    log("collection_complete", elapsed=round(self.elapsed()))
+                    return
             if self.left() < FREEZE_LEFT_S:
                 log("freeze", elapsed=round(self.elapsed()), running=running, missing=res.missing[:20])
                 return

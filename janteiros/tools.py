@@ -456,28 +456,51 @@ class Recorder:
 
     def _record_condition(self, a, ctx):
         mat = _clean(a.get("material"))
+        ev = " ".join(str(a.get(k) or "") for k in ("evidence", "record", "currency", "fx_key")) + " " + json.dumps(a.get("scales") or [], ensure_ascii=False)
+        cur = (_clean(a.get("currency")) or "").upper()[:3]
+        m_cur = re.search(r"(?:Währung|Waehrung|Currency|W\.)\s*:?\s*([A-Z]{3})\b", ev) or re.search(r"\(([A-Z]{3})\s*/\s*Preiseinheit", ev)
+        if not cur and m_cur:
+            cur = m_cur.group(1)
+        if m_cur and cur and m_cur.group(1) != cur and m_cur.group(1) in ("USD", "EUR", "CHF", "GBP", "JPY", "CNY", "PLN", "CZK", "SEK", "DKK", "NOK"):
+            return f"not recorded: the evidence says currency {m_cur.group(1)} but you gave {cur}; record it again with the right currency"
+        if not cur:
+            return "not recorded: give the currency of the condition record (as shown on the page)"
+        fx = _clean(a.get("fx_key"))
+        if not fx:
+            m_fx = re.search(r"(?:Devisenschl(?:ü|ue)ssel|FX[- ]?key|Kurs(?:schlüssel)?)\s*:?\s*([A-Z0-9][A-Z0-9-]{2,})", ev)
+            fx = m_fx.group(1) if m_fx else None
+        if cur != "EUR" and not fx:
+            return "not recorded: a non-EUR condition needs its FX key (Devisenschlüssel / exchange-rate key) as shown"
+        unit = to_decimal(a.get("price_unit"))
+        if unit is None:
+            m_u = re.search(r"Preiseinheit\s*:?\s*(\d+)", ev)
+            unit = to_decimal(m_u.group(1)) if m_u else None
+        if unit is None or unit <= 0:
+            return "not recorded: give the price unit (how many pieces the price refers to, e.g. 1 or 100)"
         fmt = a.get("number_format") or "unknown"
-        fmt = None if fmt == "unknown" else fmt
-        scales = []
-        problems = []
-        for s in a.get("scales") or []:
-            q = to_decimal(s.get("from_qty"), fmt)
-            pr = to_decimal(s.get("price"), fmt)
+        if fmt == "unknown":
+            m_f = re.search(r"(de-DE|en-US)", ev)
+            fmt = m_f.group(1) if m_f else None
+        scales, problems = [], []
+        for sc in a.get("scales") or []:
+            q = to_decimal(sc.get("from_qty"), fmt)
+            pr = to_decimal(sc.get("price"), fmt)
             if q is None or pr is None:
-                problems.append(f"unreadable scale {s}")
+                problems.append(f"unreadable scale {sc}")
                 continue
-            scales.append({"from_qty": str(q), "price": str(pr), "raw": f"{s.get('from_qty')} → {s.get('price')}"})
-        unit = to_decimal(a.get("price_unit")) or 1
+            scales.append({"from_qty": str(q), "price": str(pr), "raw": f"{sc.get('from_qty')} → {sc.get('price')}"})
         if not mat or not scales:
-            return "not recorded: need material and at least one scale" + ("; " + "; ".join(problems) if problems else "")
-        data = {"material": norm_id(mat), "record": _clean(a.get("record")), "valid_from": _clean(a.get("valid_from")),
-                "valid_to": _clean(a.get("valid_to")), "currency": (_clean(a.get("currency")) or "EUR").upper()[:3],
-                "fx_key": _clean(a.get("fx_key")), "price_unit": str(unit), "number_format": fmt, "scales": scales}
-        if parse_datetime(data["valid_from"]) is None or parse_datetime(data["valid_to"]) is None:
-            problems.append("validity dates not readable")
+            return "not recorded: need the material and at least one scale" + ("; " + "; ".join(problems) if problems else "")
+        vf, vt = _clean(a.get("valid_from")), _clean(a.get("valid_to"))
+        if parse_datetime(vf) is None or parse_datetime(vt) is None:
+            return "not recorded: give valid_from and valid_to exactly as shown (dates of the condition record)"
+        data = {"material": norm_id(mat), "record": _clean(a.get("record")), "valid_from": vf, "valid_to": vt, "currency": cur,
+                "fx_key": fx, "price_unit": str(unit), "number_format": fmt, "scales": scales}
+        if self._dupe("cond|" + json.dumps({k: v for k, v in data.items() if k != "record"}, sort_keys=True, default=str)):
+            return f"condition of {mat} already recorded (skipped)"
         self.add("price_condition", data, ctx, _ev(a))
-        shown = ", ".join(f"from {s['from_qty']}: {s['price']}" for s in scales)
-        return f"recorded condition {data['currency']} per {unit} pieces ({shown})" + ("; check: " + "; ".join(problems) if problems else "")
+        shown = ", ".join(f"from {sc['from_qty']}: {sc['price']}" for sc in scales)
+        return f"recorded condition {cur} per {unit} pieces, valid {vf} – {vt} ({shown})" + ("; check: " + "; ".join(problems) if problems else "")
 
     # ----- mail -----
     def _record_identity(self, a, ctx):
@@ -520,6 +543,15 @@ class Recorder:
                         data.pop(k)
                     else:
                         data[k] = str(v)
+            if kind == "condition_rule" and not data.get("group") and data.get("key"):
+                data["group"] = data["key"]
+            if kind == "metal_index" and not data.get("index") and data.get("key"):
+                data["index"] = data["key"]
+            if kind not in ("condition_rule", "metal_index", "discount_approval", "tan") and not data.get("key"):
+                data["key"] = data.get("group") or data.get("index")
+            if kind == "condition_rule" and data.get("scope") not in ("base_only", "base_and_surcharge", "none"):
+                problems.append(f"condition_rule {data.get('group')}: scope must be base_only, base_and_surcharge or none")
+                continue
             if kind == "bonus":
                 bands = []
                 for b in data.get("bands") or []:
