@@ -340,6 +340,62 @@ class Tab:
                 texts.append(t)
         return " | ".join(texts)[:600]
 
+    async def fill_named(self, fields: list[dict]) -> list[str]:
+        """Fill inputs/selects found by their name or label (ids change after a server re-render)."""
+        out = []
+        page = self._current()
+        js = "(e, v) => { e.value = v; e.dispatchEvent(new Event('input', {bubbles:true})); e.dispatchEvent(new Event('change', {bubbles:true})); }"
+        for f in fields:
+            name, value = str(f.get("field") or "").strip(), str(f.get("value") if f.get("value") is not None else "").strip()
+            loc = None
+            for frame in page.frames:
+                cand = frame.locator(f'[name="{name}"]')
+                if await cand.count():
+                    loc = cand.first
+                    break
+            if loc is None:
+                for frame in page.frames:
+                    try:
+                        cand = frame.get_by_label(name, exact=False)
+                        if await cand.count():
+                            loc = cand.first
+                            break
+                    except PWError:
+                        continue
+            if loc is None:
+                out.append(f"{name}: not found")
+                continue
+            tag = await loc.evaluate("e => e.tagName")
+            try:
+                if tag == "SELECT":
+                    opts = await loc.evaluate("e => Array.from(e.options).map(o => [o.value, o.textContent.trim()])")
+                    pick = _pick_option(opts, value)
+                    if pick is None:
+                        out.append(f"{name}: option {value!r} not offered")
+                        continue
+                    await loc.select_option(value=pick, timeout=4000)
+                    out.append(f"{name}={pick}")
+                else:
+                    if await loc.is_visible():
+                        await loc.fill(value, timeout=4000)
+                    else:
+                        await loc.evaluate(js, value)
+                    out.append(f"{name}={value}")
+            except PWError as e:
+                out.append(f"{name}: {str(e).splitlines()[0][:60]}")
+        return out
+
+    async def click_label(self, label: str) -> str:
+        """Click the button with this visible label (used after a re-render, when element numbers are stale)."""
+        page = self._current()
+        for frame in page.frames:
+            cand = frame.get_by_role("button", name=label, exact=True)
+            if await cand.count():
+                await cand.first.click(timeout=5000)
+                await self.settle(400)
+                return f"clicked {label!r}"
+        return f"no button {label!r}"
+
     async def fill_cascade(self, steps: list[dict], apply_id: int | None) -> str:
         """Helper: set dependent selects in order (each by its name or label), pressing the form's apply button after each
         one so the server enables the next. The model gives the values; the helper only repeats the clicks."""
@@ -356,7 +412,9 @@ class Tab:
                 done.append(f"{field}: no such select")
                 break
             if await loc.is_disabled():
+                await self._no_modal()
                 await self._press_apply(loc, apply_label)
+                loc = await self._find_select(field) or loc
                 if await loc.is_disabled():
                     done.append(f"{field}: still disabled")
                     break
@@ -430,10 +488,13 @@ class Tab:
                 handle = await select_loc.element_handle(timeout=2000)
             except PWError:
                 handle = None
-            try:
-                await btn.click(timeout=5000)
-            except PWError:
-                pass
+            await self._no_modal()
+            for attempt in range(3):
+                try:
+                    await btn.click(timeout=4000)
+                    break
+                except PWError:
+                    await clear_obstacles(self, max_rounds=3)  # e.g. a survey pop-up appeared in between
             # wait until the server has re-rendered the form (the old select is gone), then until it is loaded
             if handle is not None:
                 for _ in range(20):

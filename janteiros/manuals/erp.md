@@ -27,10 +27,15 @@ It holds materials, their technical data and status, stock, lead times and sales
   price unit (Preiseinheit: per 1, per 100 …), the number format the page states (de-DE / en-US) and every
   scale with its minimum quantity and price copied character by character.
 
-## Be fast
-- After the search, read the candidates' pages in bulk with `read_pages` (each tab of the material, its stock
-  levels, its condition records and their scale registers, using the link targets you see or their obvious
-  pattern for the other materials), then record everything at once.
+## Be fast (aim for about 8 turns)
+1. Open the material search and search the catalogue group.
+2. `record_search`, and in the same turn `read_pages` with every tab of every candidate (basic data, technical
+   data, planning/status) — use the link targets you see, or their obvious pattern for the other candidates.
+3. `record_materials` for all candidates at once (technical data, status code + is_active, lead times, pack size,
+   both masses, price index), and in the same turn `read_pages` with the stock levels and every condition record
+   (and its scale register) of the matching active candidates.
+4. `record_stock` and one `record_condition` per condition record, then `done`.
+Record from what you already read: do not read the same pages again.
 
 ## Notes
 - The session times out quickly; the kit logs in again. Re-open your page and continue.

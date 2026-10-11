@@ -365,6 +365,7 @@ class Supervisor:
                         "mounting": c.attrs.get("mounting"), "certification": c.attrs.get("certification")}
         extra["_omit"] = [p for p, r in res.readiness.items() if r == "omit"] if answer["decision"] == "bid" else sorted(res.readiness)
         self.dispatcher.phase = "final"
+        self.dispatcher.set_answer(answer, extra)
         table = self.dispatcher.bid_table(answer, extra)
         status = "not started"
         attempt = 0

@@ -328,16 +328,21 @@ def erp_mission(team: Team, group: str, reqs: list) -> Mission:
         for m in sorted(listed):
             md = mats.get(loose_id(m), {})
             if md.get("is_active") is None:
-                missing.append(f"status of {m}")
-            if any(md.get(a) in (None, "") for a in ("bore_mm", "stroke_mm", "pressure_bar", "mounting", "certification")):
-                missing.append(f"technical data of {m}")
+                missing.append(f"{m}: status_code + is_active (material status / planning tab) — record_materials")
+            lack = [a for a in ("bore_mm", "stroke_mm", "pressure_bar", "mounting", "certification") if md.get(a) in (None, "")]
+            if lack:
+                missing.append(f"{m}: {', '.join(lack)} (technical data) — record_materials")
             if md.get("is_active") and any(plausible(r.data, md, strokes.get(loose_id(r.data.get("requirement")))) for r in reqs):
                 if not _has(team, "stock", material=m):
-                    missing.append(f"stock of {m}")
+                    missing.append(f"{m}: available and blocked stock (stock overview, storage locations) — record_stock")
                 if not _has(team, "price_condition", material=m):
-                    missing.append(f"price conditions of {m}")
-                if md.get("lead_time_stock_weeks") in (None, "") or md.get("lead_time_production_weeks") in (None, ""):
-                    missing.append(f"lead times of {m}")
+                    missing.append(f"{m}: every price condition record with its scales — record_condition")
+                lt = [a for a in ("lead_time_stock_weeks", "lead_time_production_weeks") if md.get(a) in (None, "")]
+                if lt:
+                    missing.append(f"{m}: {', '.join(lt)} (planning tab) — record_materials")
+                more = [a for a in ("pieces_per_carton", "allocation_mass_g", "surcharge_mass_g", "price_index") if md.get(a) in (None, "")]
+                if more:
+                    missing.append(f"SOFT: {m}: {', '.join(more)} if the ERP shows them — record_materials")
         return missing
 
     return Mission(

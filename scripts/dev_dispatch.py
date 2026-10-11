@@ -59,6 +59,7 @@ async def main():
                  for p, c in ws["positions"].items()}
         extra["_omit"] = [p for p, c in ws["positions"].items() if c.get("readiness") == "omit"]
         d.phase = "final"
+        d.set_answer(answer, extra)
         table = d.bid_table(answer, extra)
         print(table)
         print("FINAL", await d.run(final_mission(team, table)))

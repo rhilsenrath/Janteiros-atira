@@ -62,6 +62,34 @@ cada fato entra com a sua origem.
 | `scripts/dev_mission.py` | Roda uma missão sozinha contra os sites de scouting |
 | `scripts/lint_fairplay.py` | Procura no pacote valores do cenário público (lista fora do pacote) |
 
+## Ferramentas do modelo e helpers
+
+| O modelo escolhe | O helper executa |
+| --- | --- |
+| `click`, `fill`, `select`, `check`, `set_slider`, `hover`, `press_key`, `goto`, `back` | Ação no elemento numerado que o modelo escolheu, no frame certo; fecha modais antes (o primeiro link de um pop-up costuma ser isca) |
+| `search` | Preenche o campo escolhido e envia pelo botão do próprio formulário |
+| `read_all_pages` | Segue o "próxima página / carregar mais" escolhido e devolve todas as páginas |
+| `read_pages` | Lê de uma vez até 8 páginas cujos links o modelo viu (abas de um registro, mensagens de uma lista) |
+| `open_document` | Baixa o documento escolhido (CSV, PDF, ZIP) pela sessão do navegador e devolve o texto |
+| `look` | Captura de tela para valores que só existem como imagem |
+| `record_*` | Auditor em código: tipos, formatos, referência exata, inferência pela evidência; rejeita com motivo |
+| `fill_cascade` (despachante) | Seleções dependentes em ordem, aplicando cada uma até liberar a seguinte |
+| `request_tan`, `sign_and_submit` (despachante) | Pede o TAN ao correio, arma o diálogo de confirmação e lê o recibo |
+
+O porteiro (`janteiros/browser/porteiro.js`) limpa sem modelo: login (inclusive depois de sessão expirada, voltando
+à página onde estava), parede de cookies, páginas de erro (com nova tentativa), diálogos, portões de slider +
+"não sou robô" e formulários simples de recibo. Formulários com escolhas ficam para o modelo.
+
+## Histórico dos test runs
+
+| Run | Pacote | Resultado | O que mudou |
+| --- | --- | --- | --- |
+| run_a38658501d9e3d47 | v1 | sem resposta (despachante esgotou os passos) | primeira versão completa |
+| run_44d4dad127e59b8c | v2 | **elegível, qualidade 82**, US$ 0,14, 5:23 | checklists puras, `read_pages`, `fill_cascade`, despachante insistente |
+| run_e8a012f2649fab5a | v3 | **elegível, qualidade 100**, US$ 0,12, 5:07 | auditor rígido de condições (moeda, câmbio, unidade) |
+| run_002aaaf1e7e6b60d | v4 | **elegível, qualidade 100**, US$ 0,107, 5:02 | guarda de modal, espera na cascata, TAN mais rápido, escalonamento de acompanhamentos |
+| run_d3490e8a4b9e3d41 | v5 (este código) | **elegível, qualidade 100**, US$ 0,113, 5:07 | posição numa chamada com checagem de valores por linha, sem "adicionar posição" |
+
 ## Rodar localmente
 
 ```sh

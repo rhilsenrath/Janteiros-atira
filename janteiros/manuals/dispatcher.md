@@ -19,9 +19,11 @@ form (configurator / wizard). The bid data is final and comes from the rules eng
   button that applies/confirms a selection; include the catalogue number as the last level (apply=false). Values
   come from the position's row (bore, stroke, mounting, certification — "none" means the option without
   certification).
-- Then, in ONE turn, fill quantity (pieces), net unit price, the optional calculation fields (base price,
-  surcharge, packaging, project bonus — they may sit in a collapsed section, fill them anyway), choose the lead
-  time, and continue with the next/save button.
+- In the SAME `fill_cascade` call give `fields` with the other fields of the step by their name (quantity in
+  pieces, net unit price, the optional calculation fields — base price, surcharge, packaging, project bonus, even
+  inside a collapsed section — and the lead time) and `then_click` with the label of the continue/next button.
+  One call per position is the goal. Check the result; fix only what it reports as not done.
+- Never add positions: the bid has exactly the tender's positions.
 - Numbers go in German format exactly as written in the bid table (1.234,56). Never type the gross amount.
 - A position that is not in the bid table must be omitted explicitly with the form's omit control
   ("Position auslassen" / skip) — never leave it half filled.
