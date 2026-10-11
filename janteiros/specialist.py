@@ -37,6 +37,7 @@ class Mission:
     done_check: Callable[[], list[str]] | None = None
     traps: str = ""
     deadline: float | None = None  # monotonic time by which the mission's result must exist
+    stop_when_complete: bool = False  # finish as soon as the notebook satisfies the checklist
 
 
 @dataclass
@@ -158,14 +159,18 @@ class Specialist:
         if st.status != "steps":
             return
         url_key = short_url(obs.url)
-        if url_key not in st.seen_urls:
-            st.seen_urls.add(url_key)
+        page_sig = url_key + "|" + str(hash(re.sub(r"\[\d+\]", "", obs.text)[:4000]))
+        if page_sig not in st.seen_urls:  # a page (or page state) never seen before counts as progress
+            st.seen_urls.add(page_sig)
             st.last_progress = step
         n_facts = len([f for f in self.team.notebook.facts if f.agent == self.name])
         if n_facts > st.facts_before:
             st.facts_before = n_facts
             st.last_progress = step
             st.last_fact_step = step
+        if mission.stop_when_complete and mission.done_check and step > 1 and not mission.done_check():
+            st.status, st.summary = "done", "finished: the checklist is complete"
+            return
         # supervision by exception: checklist complete in the notebook and nothing new for a while → finish
         if mission.done_check and step - st.last_fact_step >= 4 and step > 4 and not mission.done_check():
             st.status, st.summary = "done", "finished by the supervisor: checklist complete, no new facts in the last steps"

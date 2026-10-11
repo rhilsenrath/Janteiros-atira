@@ -24,7 +24,8 @@ from .team import MAIL_GROUPS, MAIL_SUBJECTS, Team, erp_mission, mail_mission, s
 RUN_BUDGET_S = 20 * 60
 FREEZE_LEFT_S = 8 * 60      # stop collecting when this much time is left
 BROWSER_OF = {"tender": 0, "supplier": 1, "erp": 2, "mail": 3}
-MAX_TABS = {"tender": 1, "supplier": 2, "erp": 4, "mail": 4}
+MAX_TABS = {"tender": 2, "supplier": 2, "erp": 4, "mail": 4}
+FACT_KINDS = ("tender", "supplier", "erp", "mail")
 
 
 class Supervisor:
@@ -174,7 +175,7 @@ class Supervisor:
                 return
             if not running and self._wave_done():
                 todo = res.missing + self._uncovered_mail()
-                if self.followups_done < 2 and self.left() > FREEZE_LEFT_S + 90 and todo:
+                if self.followups_done < 3 and self.left() > FREEZE_LEFT_S + 90 and todo:
                     self.followups_done += 1
                     if self._followups(todo):
                         continue
@@ -264,29 +265,42 @@ class Supervisor:
             except Exception:  # noqa: BLE001
                 pass
 
+    def _natural_site(self, item: str) -> str:
+        low = item.lower()
+        if "(erp)" in low or any(w in low for w in ("price condition", "stock and lead", "status of", "erp search", "details of erp", "price scales")):
+            return "erp"
+        if low.startswith("mail:") or "mail)" in low or any(w in low for w in ("reserve", "exchange rate", "pool", "packaging tariff", "delivery commitment",
+                                                                              "bonus", "konditionsregeln", "metal index", "mailbox domain")):
+            return "mail"
+        if any(w in low for w in ("requirement", "revision", "pieces per set")):
+            return "supplier"
+        return "tender"
+
     def _followups(self, missing: list[str]) -> bool:
-        """Re-route what is still missing to the site that most likely has it (nova rota)."""
+        """Re-route what is still missing (nova rota): first to the site that usually has it, then to the other sites,
+        because in another scenario the same information may live elsewhere."""
         team, log = self.team, self.team.log
+        tried = getattr(self, "_tried", {})
+        self._tried = tried
         by_site: dict[str, list[str]] = {}
         for item in missing:
-            low = item.lower()
-            if "(erp)" in low or any(w in low for w in ("price condition", "stock and lead", "status of", "erp search", "details of erp", "price scales")):
-                by_site.setdefault("erp", []).append(item)
-            elif low.startswith("mail:") or any(w in low for w in ("reserve", "exchange rate", "pool", "packaging", "delivery commitment", "bonus", "konditionsregeln", "metal index", "mailbox domain")):
-                by_site.setdefault("mail", []).append(item)
-            elif any(w in low for w in ("requirement", "revision", "pieces per set")):
-                by_site.setdefault("supplier", []).append(item)
-            elif "position" in low and not self.dispatcher:
-                by_site.setdefault("tender", []).append(item)
+            done_sites = tried.setdefault(item, set())
+            order = [self._natural_site(item)] + [r for r in ("mail", "tender", "erp", "supplier") if r != self._natural_site(item)]
+            for site in order:
+                if site in done_sites or site not in self.sites:
+                    continue
+                by_site.setdefault(site, []).append(item)
+                done_sites.add(site)
+                break
         started = False
         for site, items in by_site.items():
-            if site not in self.sites:
-                continue
             key = f"followup-{site}-{self.followups_done}"
             goal = ("The rules engine still misses these items for the bid:\n- " + "\n- ".join(items[:10]) +
                     "\nFind them on this website (they may be in another place than usual: search with the key or the reference, check "
-                    "other folders, tabs, documents and records) and record them. If an item is not on this website, say so in done.not_found.")
-            m = Mission(id=key, kind=site, goal=goal, checklist=items[:10], context=team.base_context, max_steps=25,
+                    "other folders, tabs, documents, Q&A answers and records) and record them with your record tools. If an item is not "
+                    "on this website, say so in done.not_found.")
+            kind = site if site in FACT_KINDS else "mail"
+            m = Mission(id=key, kind=kind, goal=goal, checklist=items[:10], context=team.base_context, max_steps=25,
                         budget_s=min(240, max(60, self.left() - FREEZE_LEFT_S)))
             self._launch(key, site, m)
             log("followup", mission=key, items=items[:10])

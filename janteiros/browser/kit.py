@@ -230,6 +230,18 @@ class Tab:
             png = await self._current().screenshot(type="jpeg", quality=60, timeout=12000)
         return base64.b64encode(png).decode()
 
+    async def _no_modal(self) -> None:
+        """Close open modal dialogs before acting: they take focus and keystrokes (their first link may lead away)."""
+        page = self._current()
+        for frame in page.frames:
+            try:
+                has = await asyncio.wait_for(frame.evaluate("() => !!document.querySelector('dialog[open]')"), timeout=3)
+            except (PWError, asyncio.TimeoutError):
+                continue
+            if has:
+                await clear_obstacles(self, max_rounds=3)
+                return
+
     # ---------- element lookup ----------
     def locate(self, jid: int):
         if not self.obs:
@@ -243,6 +255,7 @@ class Tab:
 
     # ---------- actions ----------
     async def click(self, jid: int) -> str:
+        await self._no_modal()
         loc = self.locate(jid)
         if loc is None:
             return f"element [{jid}] is not on the current page; observe again"
@@ -270,6 +283,7 @@ class Tab:
             pass
 
     async def fill(self, jid: int, text: str) -> str:
+        await self._no_modal()
         loc = self.locate(jid)
         if loc is None:
             return f"element [{jid}] is not on the current page; observe again"
@@ -295,19 +309,21 @@ class Tab:
         if res != "filled":
             return res
         before = self._current().url
-        try:
-            await loc.press("Enter", timeout=3000)
+        await self._no_modal()
+        submitted = False
+        try:  # prefer the form's own submit button: a key press can land in a pop-up instead
+            btn = loc.locator("xpath=ancestor::form[1]//*[self::button[not(@type) or @type='submit'] or (self::input and (@type='submit' or @type='image'))]").first
+            if await btn.count():
+                await btn.click(timeout=4000)
+                submitted = True
         except PWError:
-            pass
-        await self.settle(500)
-        if self._current().url == before:
+            submitted = False
+        if not submitted:
             try:
-                btn = loc.locator("xpath=ancestor::form[1]//*[self::button or (self::input and (@type='submit' or @type='image'))]").first
-                if await btn.count():
-                    await btn.click(timeout=4000)
-                    await self.settle(500)
+                await loc.press("Enter", timeout=3000)
             except PWError:
                 pass
+        await self.settle(500)
         after = self._current().url
         return f"searched {text!r}" + (f"; now at {short_url(after)}" if after != before else "")
 
@@ -355,7 +371,16 @@ class Tab:
                 await self._press_apply(loc, apply_label)
         return "cascade: " + ", ".join(done)
 
-    async def _find_select(self, field: str):
+    async def _find_select(self, field: str, wait_s: float = 4.0):
+        """Find a select by name or label, waiting a little: after an apply the page may still be reloading."""
+        deadline = time.monotonic() + wait_s
+        while True:
+            loc = await self._find_select_once(field)
+            if loc is not None or time.monotonic() > deadline:
+                return loc
+            await asyncio.sleep(0.4)
+
+    async def _find_select_once(self, field: str):
         page = self._current()
         for frame in page.frames:
             cand = frame.locator(f'select[name="{field}"]')
@@ -402,12 +427,26 @@ class Tab:
                         break
         if btn is not None:
             try:
+                handle = await select_loc.element_handle(timeout=2000)
+            except PWError:
+                handle = None
+            try:
                 await btn.click(timeout=5000)
             except PWError:
                 pass
-        await self.settle(400)
+            # wait until the server has re-rendered the form (the old select is gone), then until it is loaded
+            if handle is not None:
+                for _ in range(20):
+                    try:
+                        if not await handle.evaluate("e => e.isConnected"):
+                            break
+                    except PWError:
+                        break
+                    await asyncio.sleep(0.2)
+        await self.settle(300)
 
     async def select(self, jid: int, choice: str) -> str:
+        await self._no_modal()
         loc = self.locate(jid)
         if loc is None:
             return f"element [{jid}] is not on the current page; observe again"
@@ -437,6 +476,7 @@ class Tab:
         return f"selected {value!r}"
 
     async def check(self, jid: int, checked: bool = True) -> str:
+        await self._no_modal()
         loc = self.locate(jid)
         if loc is None:
             return f"element [{jid}] is not on the current page; observe again"
@@ -453,12 +493,14 @@ class Tab:
         return "checked" if checked else "unchecked"
 
     async def set_slider(self, jid: int, value: str) -> str:
+        await self._no_modal()
         loc = self.locate(jid)
         if loc is None:
             return f"element [{jid}] is not on the current page; observe again"
         return await _slide(loc, value, self._current())
 
     async def press(self, key: str, jid: int | None = None) -> str:
+        await self._no_modal()
         if jid is not None:
             loc = self.locate(jid)
             if loc is None:
@@ -470,6 +512,7 @@ class Tab:
         return f"pressed {key}"
 
     async def hover(self, jid: int) -> str:
+        await self._no_modal()
         loc = self.locate(jid)
         if loc is None:
             return f"element [{jid}] is not on the current page; observe again"

@@ -366,4 +366,4 @@ def tan_mission(team: Team, request_no: str | None, requested_at: float) -> Miss
               f"this reference{' and request number' if request_no else ''} in the inbox (new TANs appear without searching; reload the "
               "inbox or open the newest message), open it and record it with record_message (one fact kind=tan with the TAN and the request number)."),
         checklist=["newest TAN for this reference and request recorded"], context=team.base_context,
-        max_steps=14, budget_s=150, done_check=check)
+        max_steps=14, budget_s=150, done_check=check, stop_when_complete=True)
