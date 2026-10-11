@@ -36,6 +36,7 @@ class Mission:
     thinking: bool = False
     done_check: Callable[[], list[str]] | None = None
     traps: str = ""
+    deadline: float | None = None  # monotonic time by which the mission's result must exist
 
 
 @dataclass
@@ -62,6 +63,7 @@ class LoopState:
     read_offset: int = 0
     facts_before: int = 0
     last_fact_step: int = 0
+    warned: set[str] = field(default_factory=set)
     status: str = "steps"
     summary: str = ""
     not_found: list[str] = field(default_factory=list)
@@ -223,14 +225,18 @@ class Specialist:
         tab = self.tab
         special = await self.execute_special(mission, st, name, args, obs)
         if special is not None:
-            return special, name in ("request_tan", "sign_and_submit")
+            return special, name in ("request_tan", "sign_and_submit", "click", "fill_cascade")
         if name in FACT_NAMES:
             ctx = Ctx(agent=self.name, site=tab.site_id, url=obs.url, step=step, tz=tz)
             return self.recorder.record(name, args, ctx), False
         if name == "done":
             missing = mission.done_check() if mission.done_check else []
-            if missing and step < mission.max_steps - 2 and time.monotonic() - st.t0 < mission.budget_s * 0.9:
-                return "not finished, still missing: " + "; ".join(missing[:8]), False
+            # soft items (that may legitimately not exist) block done only once; hard items block until the budget runs out
+            hard = [m for m in missing if not m.startswith("SOFT:")]
+            soft = [m for m in missing if m.startswith("SOFT:") and m not in st.warned]
+            st.warned.update(soft)
+            if (hard or soft) and step < mission.max_steps - 2 and time.monotonic() - st.t0 < mission.budget_s * 0.9:
+                return "not finished, still missing: " + "; ".join(m.replace("SOFT: ", "") for m in (hard + soft)[:8]), False
             st.summary = str(args.get("summary") or "")
             st.not_found = [str(x) for x in (args.get("not_found") or [])]
             st.status = "done"
@@ -305,7 +311,7 @@ class Specialist:
         if mission.checklist:
             missing = mission.done_check() if mission.done_check else []
             parts.append("# Checklist\n" + "\n".join(f"- {c}" for c in mission.checklist)
-                         + ("\nStill missing according to the notebook: " + "; ".join(missing[:10]) if missing
+                         + ("\nStill missing according to the notebook: " + "; ".join(m.replace("SOFT: ", "") for m in missing[:10]) if missing
                             else ("\nEVERYTHING ON THE CHECKLIST IS RECORDED. Call done now (with a short summary) unless you know of a page "
                                   "with required data that you have not read yet. Do not re-read or re-check pages." if mission.done_check else "")))
         mine = self.team.my_facts(self.name)
@@ -316,6 +322,9 @@ class Specialist:
         if hints:
             parts.append("# Notes\n" + "\n".join(hints))
         parts.append(f"# Step {step} of at most {mission.max_steps}")
+        if mission.deadline is not None:
+            left = int(mission.deadline - time.monotonic())
+            parts.append(f"# Time left: {left} seconds" + (" — HURRY: omit every position you have not started yet and go straight to signing." if left < 150 else ""))
         if big_output:
             parts.append("# Output of your last helper call\n" + big_output[:30000])
         parts.append("# Current page\n" + page)

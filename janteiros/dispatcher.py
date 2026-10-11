@@ -16,6 +16,13 @@ from .tools import NAV_TOOLS, fn
 
 DISPATCH_TOOLS = [t for t in NAV_TOOLS if t["function"]["name"] in
                   ("click", "fill", "select", "check", "set_slider", "press_key", "hover", "goto", "read_more", "look", "wait")] + [
+    fn("fill_cascade", "Helper for dependent selects (e.g. bore → stroke → mounting → certification → catalogue number): give the "
+       "fields in order (select name or label) with the value for each, and the id of the button that applies a selection; "
+       "the helper selects each value and presses apply until all are set.",
+       {"steps": {"type": "array", "items": {"type": "object", "properties": {"field": {"type": "string"}, "value": {"type": "string"},
+                                                                               "apply": {"type": "boolean", "description": "press apply after this one (default true)"}},
+                                             "required": ["field", "value"]}},
+        "apply_id": {"type": "integer", "description": "id of the button that applies/confirms a selection"}}, ["steps", "apply_id"]),
     fn("request_tan", "Click the TAN request button (give its id); the mail team fetches the newest TAN and you get it back.",
        {"id": {"type": "integer"}}, ["id"]),
     fn("sign_and_submit", "Final binding submission: click this button (id). Only after the TAN is typed into its field and the summary is checked.",
@@ -45,6 +52,11 @@ def de_percent(x) -> str:
     if d == d.to_integral_value():
         return str(int(d))
     return de_num(d, 2).rstrip("0").rstrip(",")
+
+
+def _cert(c) -> str:
+    from .normalize import norm_cert
+    return "none (choose the option without certification)" if norm_cert(c) == "none" else str(c or "")
 
 
 class Dispatcher(Specialist):
@@ -80,6 +92,9 @@ class Dispatcher(Specialist):
                 st.status, st.summary = "done", f"receipt {self.receipt}"
                 return "finished"
             return "not finished: the receipt is not shown yet"
+        if name == "fill_cascade":
+            res = await self.tab.fill_cascade(list(args.get("steps") or []), int(args["apply_id"]) if args.get("apply_id") is not None else None)
+            return res + await self._alerts()
         if name == "request_tan":
             return await self._request_tan(int(args.get("id") or 0))
         if name == "sign_and_submit":
@@ -89,7 +104,14 @@ class Dispatcher(Specialist):
             return res
         if name == "click" and self._is_back(int(args.get("id") or -1)):
             return "refused: going back deletes the later steps of the wizard"
+        if name == "click":
+            res = await self.tab.click(int(args.get("id") or 0))
+            return res + await self._alerts()
         return None
+
+    async def _alerts(self) -> str:
+        msg = await self.tab.alerts()
+        return f"; the page shows: {msg}" if msg else ""
 
     def _is_back(self, jid: int) -> bool:
         if not self.tab.obs:
@@ -152,7 +174,7 @@ class Dispatcher(Specialist):
                 return de_num(p[k]) if k in p else "(leave empty)"
             lines.append(f"| {p['position']} | {p['material_number']} | {p['quantity']} | {de_num(p['unit_price'])} | {p['lead_time_weeks']} | "
                          f"{opt('base_unit_price')} | {opt('surcharge_per_unit')} | {opt('packaging_per_unit')} | {opt('rebate_total')} | "
-                         f"{at.get('bore', '')} | {at.get('stroke', '')} | {at.get('pressure', '')} | {at.get('mounting', '')} | {at.get('certification', '')} |")
+                         f"{at.get('bore', '')} | {at.get('stroke', '')} | {at.get('pressure', '')} | {at.get('mounting', '')} | {_cert(at.get('certification'))} |")
         omitted = extra.get("_omit") or []
         if omitted:
             lines.append("Positions to OMIT explicitly (not in the table): " + ", ".join(omitted))
@@ -185,4 +207,4 @@ def final_mission(team, table: str) -> Mission:
               f"Bidder: {p.bidder_company}, VAT {p.bidder_vat}, contact e-mail {team.bidder_address()}.\n"
               "Never go back. On the summary step request the TAN (request_tan), type it, and sign (sign_and_submit)."),
         checklist=["every step saved with the bid data", "summary checked", "TAN typed", "signed: receipt shown"],
-        context=team.base_context, max_steps=70, budget_s=420)
+        context=team.base_context, max_steps=220, budget_s=420)

@@ -273,11 +273,15 @@ class Tab:
         loc = self.locate(jid)
         if loc is None:
             return f"element [{jid}] is not on the current page; observe again"
+        js = "(e, v) => { e.value = v; e.dispatchEvent(new Event('input', {bubbles:true})); e.dispatchEvent(new Event('change', {bubbles:true})); }"
         try:
-            await loc.fill(text, timeout=4000)
+            if await loc.is_visible():
+                await loc.fill(text, timeout=4000)
+            else:  # e.g. a field inside a collapsed section: set it directly
+                await loc.evaluate(js, text)
         except PWError:
             try:
-                await loc.evaluate("(e, v) => { e.value = v; e.dispatchEvent(new Event('input', {bubbles:true})); e.dispatchEvent(new Event('change', {bubbles:true})); }", text)
+                await loc.evaluate(js, text)
             except PWError as e:
                 return f"could not fill [{jid}]: {str(e).splitlines()[0][:120]}"
         return "filled"
@@ -306,6 +310,102 @@ class Tab:
                 pass
         after = self._current().url
         return f"searched {text!r}" + (f"; now at {short_url(after)}" if after != before else "")
+
+    async def alerts(self) -> str:
+        """Visible validation / alert messages of the current page (all frames)."""
+        texts = []
+        for frame in self._current().frames:
+            try:
+                t = await asyncio.wait_for(frame.evaluate(
+                    "() => Array.from(document.querySelectorAll('[role=alert], .error, .alert')).filter(e => e.getClientRects().length).map(e => e.innerText.trim()).filter(Boolean).join(' | ')"), timeout=4)
+            except (PWError, asyncio.TimeoutError):
+                continue
+            if t:
+                texts.append(t)
+        return " | ".join(texts)[:600]
+
+    async def fill_cascade(self, steps: list[dict], apply_id: int | None) -> str:
+        """Helper: set dependent selects in order (each by its name or label), pressing the form's apply button after each
+        one so the server enables the next. The model gives the values; the helper only repeats the clicks."""
+        apply_label = None
+        if apply_id is not None and self.obs is not None:
+            m = re.search(r"\[%d\] button \"([^\"]*)\"" % apply_id, self.obs.text)
+            apply_label = m.group(1) if m else None
+        done: list[str] = []
+        for i, stp in enumerate(steps):
+            field = str(stp.get("field") or "").strip()
+            value = str(stp.get("value") or "").strip()
+            loc = await self._find_select(field)
+            if loc is None:
+                done.append(f"{field}: no such select")
+                break
+            if await loc.is_disabled():
+                await self._press_apply(loc, apply_label)
+                if await loc.is_disabled():
+                    done.append(f"{field}: still disabled")
+                    break
+            opts = await loc.evaluate("e => Array.from(e.options).map(o => [o.value, o.textContent.trim()])")
+            pick = _pick_option(opts, value)
+            if pick is None:
+                done.append(f"{field}: option {value!r} not offered (offered: {' | '.join(t for _, t in opts[:25])})")
+                break
+            await loc.select_option(value=pick, timeout=4000)
+            done.append(f"{field}={pick}")
+            if stp.get("apply", i < len(steps) - 1):
+                await self._press_apply(loc, apply_label)
+        return "cascade: " + ", ".join(done)
+
+    async def _find_select(self, field: str):
+        page = self._current()
+        for frame in page.frames:
+            cand = frame.locator(f'select[name="{field}"]')
+            if await cand.count():
+                return cand.first
+        for frame in page.frames:
+            try:
+                cand = frame.get_by_label(field, exact=False)
+                n = await cand.count()
+                for k in range(n):
+                    el = cand.nth(k)
+                    if await el.evaluate("e => e.tagName") == "SELECT":
+                        return el
+            except PWError:
+                continue
+        return None
+
+    async def _press_apply(self, select_loc, apply_label: str | None) -> None:
+        """Press the button that applies a selection: the one the model named, else the form's only non-navigation button."""
+        page = self._current()
+        btn = None
+        if apply_label:
+            for frame in page.frames:
+                cand = frame.get_by_role("button", name=apply_label, exact=True)
+                if await cand.count():
+                    btn = cand.first
+                    break
+        if btn is None:
+            try:
+                idx = await select_loc.evaluate("""e => {
+                    const f = e.form || e.closest('form'); if (!f) return -1;
+                    const nav = /weiter|zurück|next|back|auslassen|skip|hinzufügen|add|tan|abgeben|submit|senden|speichern|save|abbrech|cancel/i;
+                    const bs = Array.from(f.querySelectorAll('button, input[type=submit]'));
+                    const i = bs.findIndex(b => !nav.test((b.innerText || b.value || '') + ' ' + (b.getAttribute('value') || '')));
+                    if (i >= 0) bs[i].setAttribute('data-apply', '1');
+                    return i; }""")
+            except PWError:
+                idx = -1
+            if idx is not None and idx >= 0:
+                for frame in page.frames:
+                    cand = frame.locator('[data-apply="1"]')
+                    if await cand.count():
+                        btn = cand.first
+                        break
+        if btn is not None:
+            try:
+                await btn.click(timeout=5000)
+            except PWError:
+                pass
+        await self.settle(400)
 
     async def select(self, jid: int, choice: str) -> str:
         loc = self.locate(jid)
@@ -471,6 +571,30 @@ class Tab:
         if "html" in ctype:
             return "html", text[:20000]
         return "text", text[:20000]
+
+
+NONE_WORDS = re.compile(r"^(none|keine?|ohne|nicht|n/?a|—|-)$|ohne |keine |no ", re.I)
+
+
+def _pick_option(opts: list[list[str]], value: str) -> str | None:
+    """Choose the option for a wanted value: exact value/text, 'none' → the option without one, then prefix/contains."""
+    want = value.strip()
+    for v, t in opts:
+        if want and want in (v, t):
+            return v
+    low = want.lower()
+    head = re.split(r"[\s(]", low)[0] if low else ""
+    if NONE_WORDS.search(low) or head in ("", "none", "keine", "kein", "ohne"):
+        for v, t in opts:
+            if v and (v.lower() in ("none", "keine", "ohne") or re.search(r"\bohne\b|\bkeine\b|\bnone\b|not required", t, re.I)):
+                return v
+    for v, t in opts:
+        if v and low and (t.lower().startswith(low) or v.lower() == low):
+            return v
+    for v, t in opts:
+        if v and low and low in t.lower():
+            return v
+    return None
 
 
 def _strip_chrome(text: str) -> str:

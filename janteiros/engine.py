@@ -429,7 +429,7 @@ def compute(facts: list[Fact], plan: Plan) -> EngineResult:
         if not valid:
             if conds:
                 c.notes.append("no price condition valid on the scenario date")
-            missing.append(f"price condition of {c.material}")
+            missing.append(f"price condition of {c.material} (ERP)")
             continue
         cf = max(valid, key=lambda f: (_dt(f.data.get("valid_from")) or datetime(1900, 1, 1, tzinfo=timezone.utc), f.id))
         c.used["condition"] = [cf.id]
@@ -437,7 +437,7 @@ def compute(facts: list[Fact], plan: Plan) -> EngineResult:
         scales = [(q, pr) for q, pr in scales if q is not None and pr is not None]
         reach = [(q, pr) for q, pr in scales if q <= c.quantity]
         if not reach:
-            missing.append(f"price scales of {c.material}")
+            missing.append(f"price scales of {c.material} (ERP)")
             continue
         _, price = max(reach, key=lambda t: t[0])
         unit = to_decimal(cf.data.get("price_unit")) or Decimal(1)
@@ -471,7 +471,7 @@ def compute(facts: list[Fact], plan: Plan) -> EngineResult:
                 c.notes.append("material shows no surcharge mass nor price index: surcharge 0")
             continue
         if mass is None or not idx:
-            missing.append(f"surcharge mass / price index of {c.material}")
+            missing.append(f"surcharge mass and price index of {c.material} (ERP)")
             continue
         rate = _index_rate(index_entries, idx, sd)
         if rate is None:
@@ -521,11 +521,12 @@ def compute(facts: list[Fact], plan: Plan) -> EngineResult:
             md = materials.get(norm_id(c.material or ""), {})
             am = to_decimal(md.get("allocation_mass_g"))
             if c.quantity is None or am is None or fee is None:
+                if c.material and am is None:
+                    missing.append(f"allocation mass of {c.material} (ERP)")
                 weights = None
                 break
             weights[p] = c.quantity * am
         if weights is None:
-            missing.append(f"pool {k}: quantities or allocation masses")
             for p in members:
                 calcs[p].pool = None
             continue
@@ -547,8 +548,11 @@ def compute(facts: list[Fact], plan: Plan) -> EngineResult:
         tf = packaging.get(k)
         md = materials.get(norm_id(c.material or ""), {})
         per_carton = to_decimal(md.get("pieces_per_carton"))
+        if tf is None:
+            missing.append(f"packaging tariff {k} (Verpackungstarife mail)")
+        if c.material and per_carton in (None, ZERO):
+            missing.append(f"pieces per carton of {c.material} (ERP)")
         if tf is None or per_carton in (None, ZERO) or c.quantity is None:
-            missing.append(f"packaging {k}: tariff or pieces per carton")
             continue
         tariff = to_decimal(tf.data.get("eur_per_carton"))
         if tariff is None:
@@ -661,7 +665,7 @@ def compute(facts: list[Fact], plan: Plan) -> EngineResult:
         sf = stock.get(mkey)
         stock_wk, prod_wk = md.get("lead_time_stock_weeks"), md.get("lead_time_production_weeks")
         if sf is None or stock_wk is None or prod_wk is None:
-            missing.append(f"stock and lead times of {c.material}")
+            missing.append(f"stock and lead times of {c.material} (ERP)")
             continue
         avail = to_decimal(sf.data.get("available_qty"))
         if avail is None:

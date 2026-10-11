@@ -266,7 +266,7 @@ class Supervisor:
         by_site: dict[str, list[str]] = {}
         for item in missing:
             low = item.lower()
-            if any(w in low for w in ("price condition", "stock and lead", "status of", "erp", "price scales", "surcharge mass", "pieces per carton", "allocation")):
+            if "(erp)" in low or any(w in low for w in ("price condition", "stock and lead", "status of", "erp search", "details of erp", "price scales")):
                 by_site.setdefault("erp", []).append(item)
             elif low.startswith("mail:") or any(w in low for w in ("reserve", "exchange rate", "pool", "packaging", "delivery commitment", "bonus", "konditionsregeln", "metal index", "mailbox domain")):
                 by_site.setdefault("mail", []).append(item)
@@ -348,14 +348,24 @@ class Supervisor:
         extra["_omit"] = [p for p, r in res.readiness.items() if r == "omit"] if answer["decision"] == "bid" else sorted(res.readiness)
         self.dispatcher.phase = "final"
         table = self.dispatcher.bid_table(answer, extra)
-        fm = final_mission(team, table)
-        fm.budget_s = max(90, self.left() - 25)
-        try:
-            result = await asyncio.wait_for(self.dispatcher.run(fm), timeout=fm.budget_s + 30)
-            status = result.status
-        except asyncio.TimeoutError:
-            status = "watchdog"
-        log("dispatch_result", status=status, receipt=self.dispatcher.receipt)
+        status = "not started"
+        attempt = 0
+        # never end the run without a signed bid while there is time: re-run the dispatcher from wherever the wizard is
+        while not self.dispatcher.receipt and self.left() > 20 and attempt < 6:
+            attempt += 1
+            fm = final_mission(team, table)
+            fm.budget_s = max(30, self.left() - 15)
+            fm.deadline = time.monotonic() + fm.budget_s
+            if attempt > 1:
+                fm.goal += "\nYou were interrupted: the wizard keeps what was saved. Look where it is now and continue from there."
+            try:
+                result = await asyncio.wait_for(self.dispatcher.run(fm), timeout=fm.budget_s + 20)
+                status = result.status
+            except asyncio.TimeoutError:
+                status = "watchdog"
+            except Exception as e:  # noqa: BLE001
+                status = f"error {e!r}"[:200]
+            log("dispatch_result", attempt=attempt, status=status, receipt=self.dispatcher.receipt, left=round(self.left()))
         summary = {"answer": answer, "receipt": self.dispatcher.receipt, "elapsed": round(self.elapsed(), 1),
                    "llm_calls": team.llm.usage.calls, "llm_cost_usd": round(team.llm.usage.cost, 4), "missing": res.missing}
         (out / "summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False, default=str))

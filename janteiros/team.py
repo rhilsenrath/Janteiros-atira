@@ -167,7 +167,6 @@ def _has(team: Team, kind: str, **match) -> list:
 
 def tender_mission(team: Team) -> Mission:
     p = team.plan
-    soft = {"qa": False}
 
     def check():
         missing = []
@@ -175,9 +174,8 @@ def tender_mission(team: Team) -> Mission:
             missing.append("record_tender for the exact reference")
         if not team.notebook.ok("position"):
             missing.append("record_positions (bill of quantities)")
-        if not team.notebook.ok("qa") and not soft["qa"]:
-            soft["qa"] = True
-            missing.append("bidder Q&A answers (Bieterfragen) – record them, or call done again if there are none")
+        if not team.notebook.ok("qa"):
+            missing.append("SOFT: bidder Q&A answers (Bieterfragen) – record them, or call done again if there are none")
         return missing
 
     return Mission(
@@ -244,7 +242,6 @@ MAIL_GROUPS = [
 
 def mail_mission(team: Team, mid: str, kinds: list[str], first: bool) -> Mission:
     p = team.plan
-    soft: set[str] = set()
     subjects = "\n".join(f"- {MAIL_SUBJECTS[k][0]} from {team.plan.senders.get(k, MAIL_SUBJECTS[k][1])}@<bidder domain>: {MAIL_SUBJECTS[k][2]}" for k in kinds)
 
     def check():
@@ -252,11 +249,8 @@ def mail_mission(team: Team, mid: str, kinds: list[str], first: bool) -> Mission
         if first and not team.notebook.ok("mail_identity"):
             missing.append("record_identity (the address you are logged in as)")
         for k in kinds:
-            if k in soft:
-                continue
             if not [f for f in team.notebook.ok("mail_fact") if f.data.get("kind") == k]:
-                soft.add(k)
-                missing.append(f"{MAIL_SUBJECTS[k][0]}: search inbox and archive (call done again if there is none)")
+                missing.append(f"SOFT: {MAIL_SUBJECTS[k][0]}: search inbox and archive and record it (call done again if there is none)")
         return missing
 
     return Mission(

@@ -14,11 +14,14 @@ form (configurator / wizard). The bid data is final and comes from the rules eng
 - Bid type: the main bid (Hauptangebot) for decision "bid"; the waiver (Verzichtserklärung) for "no_bid". A
   different option may be pre-selected: always set it yourself.
 - Positions may come in any order. Look at the position number of the step and use that position's row.
-  Material pickers can be cascades: choose bore, then apply/confirm the choice, then stroke, mounting,
-  certification, each time applying the selection, until the catalogue number list offers the material. Pick
-  the exact material number. Then quantity (pieces), net unit price, lead time and the optional calculation
-  fields (base price, surcharge, packaging, project bonus) from the bid table. Collapsed calculation sections
-  contain fields too.
+- Material pickers can be cascades (bore → stroke → mounting → certification → catalogue number, each enabled only
+  after the previous choice is applied). Use ONE `fill_cascade` call with all levels in order and the id of the
+  button that applies/confirms a selection; include the catalogue number as the last level (apply=false). Values
+  come from the position's row (bore, stroke, mounting, certification — "none" means the option without
+  certification).
+- Then, in ONE turn, fill quantity (pieces), net unit price, the optional calculation fields (base price,
+  surcharge, packaging, project bonus — they may sit in a collapsed section, fill them anyway), choose the lead
+  time, and continue with the next/save button.
 - Numbers go in German format exactly as written in the bid table (1.234,56). Never type the gross amount.
 - A position that is not in the bid table must be omitted explicitly with the form's omit control
   ("Position auslassen" / skip) — never leave it half filled.
@@ -30,3 +33,5 @@ form (configurator / wizard). The bid data is final and comes from the rules eng
   team for the newest TAN and tells you the TAN), type it into the TAN field, and sign with `sign_and_submit`
   on the final binding-submission button. The browser confirmation dialog is handled for you.
 - After signing, the portal shows a receipt. Call `done` with the receipt number.
+- Watch the time left shown in each turn. An unsigned bid scores nothing: when time runs short, omit the positions
+  you have not entered yet, then finish the remaining steps and sign.
