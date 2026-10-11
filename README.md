@@ -117,4 +117,5 @@ atira test-run . --challenge rfq                 # run de teste com nota por cam
 
 O pacote não contém nenhuma referência, número de material, preço, desconto, login, TAN, URL ou rótulo do
 cenário público. O que o scouting ensinou virou padrão nos manuais, nunca passo fixo. O linter compara o pacote
-com uma lista de valores mantida em `local/` (fora do git e do pacote).
+com uma lista de valores mantida em `local/` (fora do git e do pacote). Os arquivos verificados são os que o
+`atira` enviaria (`atira test-run . --dry-run`), não os que o git rastreia.

@@ -5,3 +5,5 @@ runs/
 local/
 .pytest_cache/
 .DS_Store
+.env
+.idea/
