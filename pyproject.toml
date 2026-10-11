@@ -1,0 +1,22 @@
+[project]
+name = "janteiros-rfq"
+version = "0.1.0"
+description = "Janteiros: a model-driven agent system that turns a public tender (RFQ) into a correct, signed bid"
+requires-python = ">=3.12"
+dependencies = [
+    "openai==2.54.0",
+    "playwright==1.63.0",
+    "pypdf>=5,<7",
+    "tzdata>=2026.5",
+    "jsonschema==4.26.0",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
