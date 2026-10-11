@@ -1,0 +1,21 @@
+{
+  "action": "investigate",
+  "question": "Development test: read both materials in GR-8923, including stock, planning and price scales. Inputs are supplied mocks, not an authoritative tender specification.",
+  "tender": {
+    "reference": "VG-2027-7093",
+    "scenario_date": "2027-01-25T09:00:00Z",
+    "positions": [{"position_id": "TEST-1", "requirement_id": "TEST-REQ-1", "quantity": "10", "unit": "ST"}]
+  },
+  "technical": {
+    "requirements": [{
+      "requirement_id": "TEST-REQ-1",
+      "catalogue_group": "GR-8923",
+      "bore": "80",
+      "stroke": "200",
+      "pressure": "210",
+      "mounting": "Schwenkauge",
+      "certification": "EN 1493",
+      "stroke_kind": "nominal"
+    }]
+  }
+}

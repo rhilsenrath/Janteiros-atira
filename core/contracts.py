@@ -111,10 +111,39 @@ class MaterialCandidate(Provenanced):
     allocation_mass: Decimal | None = None
     pieces_per_carton: Decimal | None = None
 
+class MaterialSelection(Record):
+    requirement_id: str
+    status: Literal['selected','no_match','incomplete','ambiguous']
+    material_id: str | None = None
+    reasons: dict[str, list[str]] = Field(default_factory=dict)
+
+class PriceSelection(Record):
+    position_id: str
+    material_id: str | None = None
+    status: Literal['selected','no_match','incomplete','ambiguous']
+    quantity_pieces: Decimal | None = None
+    condition: PriceCondition | None = None
+    base_price_per_piece: Decimal | None = None
+    reasons: list[str] = Field(default_factory=list)
+
+class LeadTimeSelection(Record):
+    position_id: str
+    material_id: str | None = None
+    status: Literal['selected','incomplete']
+    demand_pieces: Decimal | None = None
+    available_stock: Decimal | None = None
+    basis: Literal['stock','production'] | None = None
+    duration: int | None = None
+    unit: Literal['days','weeks'] | None = None
+    reasons: list[str] = Field(default_factory=list)
+
 class ERPData(Provenanced):
     kind: Literal["erp"] = "erp"
     materials: list[MaterialCandidate] = Field(default_factory=list)
     conflicts: list[str] = Field(default_factory=list)
+    selections: list[MaterialSelection] = Field(default_factory=list)
+    price_selections: list[PriceSelection] = Field(default_factory=list)
+    lead_time_selections: list[LeadTimeSelection] = Field(default_factory=list)
 
 class CommercialRule(Provenanced):
     key: str

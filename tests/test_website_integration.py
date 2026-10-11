@@ -52,8 +52,7 @@ class ExtractionModel:
 
 class WebsiteTests(unittest.IsolatedAsyncioTestCase):
     async def test_each_production_worker_authenticates_and_extracts_from_observed_sources(self):
-        # Mail has its own execution loop and is covered by test_mail_progress.
-        for role,worker in [('tender',TenderAgent()),('supplier',SupplierAgent()),('erp',ErpAgent())]:
+        for role,worker in [('tender',TenderAgent()),('supplier',SupplierAgent()),('erp',ErpAgent()),('mail',MailAgent())]:
             logs=[];reports=[];model=ExtractionModel(role)
             async def report(result):reports.append(result)
             context=AgentContext(RUNTIME,RunConfig(max_navigation_steps=2),page=object(),llm=model,
@@ -94,7 +93,7 @@ class NavigationTests(unittest.IsolatedAsyncioTestCase):
         site=manager().for_role('tender')
         control={'tag':'input','name':'random-login-field','type':'password','label':'Secret label','href':None}
         element=SimpleNamespace(fill=AsyncMock(),click=AsyncMock(),press=AsyncMock(),select_option=AsyncMock())
-        async def evaluate(script):return site.url if 'closest' in script else control
+        async def evaluate(script):return site.url if "closest('form')" in script else control
         element.evaluate=evaluate
         frame=SimpleNamespace(locator=lambda selector:SimpleNamespace(nth=lambda index:element),
             get_by_label=lambda *args,**kwargs:SimpleNamespace(count=AsyncMock(return_value=0)))
